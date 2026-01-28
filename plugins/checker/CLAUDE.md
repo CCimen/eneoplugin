@@ -2,9 +2,20 @@
 
 This project uses Pyright for Python type checking with a ratcheting strategy.
 
-## Automatic Type Checking
+## Proactive Type Checking (MCP Tool)
 
-A Stop hook automatically runs type checking when you finish editing Python files in `backend/src/intric/`. If errors are found, you'll receive feedback and should fix them before continuing.
+**Use the `typecheck` tool PROACTIVELY** after editing Python files in `backend/src/intric/`. Don't wait for the Stop hook - check files immediately after editing to catch errors early.
+
+```
+typecheck(files=["src/intric/files/file_service.py"])  # Check specific file
+typecheck(files=[])                                      # Check all changed files
+```
+
+The tool respects ratcheting - you'll only see NEW errors you introduced, not legacy errors.
+
+## Automatic Safety Net (Stop Hook)
+
+A Stop hook automatically runs when you finish editing, checking ALL changed Python files. If errors are found, you'll receive feedback and must fix them before continuing.
 
 ## Manual Check
 

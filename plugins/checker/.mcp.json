@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "checker": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--with",
+        "fastmcp<3",
+        "python",
+        "${CLAUDE_PLUGIN_ROOT}/mcp/typecheck_server.py"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}
