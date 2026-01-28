@@ -1,47 +1,38 @@
 # eneoplugin
 
-A Claude Code plugin with AI team behavioral guidelines and skills for Eneo developers.
+A Claude Code plugin marketplace with AI team behavioral guidelines for Eneo developers.
 
 ## Installation
 
-### Option 1: Install from GitHub
+### 1. Add the marketplace
 
-```bash
-claude plugins install CCimen/eneoplugin
+```
+/plugin marketplace add CCimen/eneoplugin
 ```
 
-### Option 2: Install from local path
+### 2. Install the plugin
 
-```bash
-claude plugins install /path/to/eneoplugin
+```
+/plugin install karpathy-guidelines@eneoplugin
 ```
 
-## What's Included
+## Available Plugins
 
-### CLAUDE.md
+### karpathy-guidelines
 
-Behavioral guidelines that are automatically loaded when working in projects that use this plugin. These guidelines help reduce common LLM coding mistakes by emphasizing:
+Behavioral guidelines to reduce common LLM coding mistakes. Includes:
 
-1. **Think Before Coding** - Understand context before making changes
-2. **Simplicity First** - Write the simplest solution that works
-3. **Surgical Changes** - Make minimal, focused modifications
-4. **Goal-Driven Execution** - Stay focused on the actual goal
+- **CLAUDE.md** - Automatically loaded guidelines emphasizing:
+  1. Think Before Coding
+  2. Simplicity First
+  3. Surgical Changes
+  4. Goal-Driven Execution
 
-### Skills
-
-#### karpathy-guidelines
-
-Invoke with: `/karpathy-guidelines`
-
-Detailed coding guidelines inspired by Andrej Karpathy's observations about common LLM coding mistakes. Use when:
-- Writing new code
-- Reviewing pull requests
-- Refactoring existing code
-- Debugging issues
+- **Skill** - Invoke with `/karpathy-guidelines` for detailed guidance when writing, reviewing, or refactoring code.
 
 ## Usage
 
-Once installed, the CLAUDE.md guidelines are automatically applied. To explicitly invoke the karpathy-guidelines skill:
+Once installed, the CLAUDE.md guidelines are automatically applied. To explicitly invoke the skill:
 
 ```
 /karpathy-guidelines

@@ -1,0 +1,13 @@
+{
+  "name": "eneoplugin",
+  "owner": {
+    "name": "Eneo AI Team"
+  },
+  "plugins": [
+    {
+      "name": "karpathy-guidelines",
+      "source": "./plugins/karpathy-guidelines",
+      "description": "Behavioral guidelines to reduce common LLM coding mistakes"
+    }
+  ]
+}
