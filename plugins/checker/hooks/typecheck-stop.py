@@ -2,6 +2,11 @@
 """
 Stop hook: Run type checking when Claude finishes editing Python files.
 Only runs if backend/src/intric/**/*.py files were modified.
+
+Works in multiple environments:
+- Normal clone: ~/projects/eneo/backend/src/intric
+- Devcontainer: /workspace/backend/src/intric
+- Nested setup: ~/eneo/eneo/backend/src/intric
 """
 import json
 import os
@@ -10,13 +15,44 @@ import sys
 from pathlib import Path
 
 
-def get_changed_python_files(project_dir: str) -> list[str]:
+def find_repo_root(start_dir: str) -> str | None:
+    """Find the eneo repo root containing backend/src/intric."""
+    start = Path(start_dir)
+
+    # Try git root from start_dir first
+    result = subprocess.run(
+        ["git", "-C", str(start), "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True
+    )
+    if result.returncode == 0:
+        git_root = Path(result.stdout.strip())
+        if (git_root / "backend" / "src" / "intric").exists():
+            return str(git_root)
+
+    # Check if start_dir itself has backend/src/intric
+    if (start / "backend" / "src" / "intric").exists():
+        return str(start)
+
+    # Check common nested locations (eneo subdir, workspace)
+    for subdir in ["eneo", "workspace"]:
+        candidate = start / subdir
+        if (candidate / "backend" / "src" / "intric").exists():
+            return str(candidate)
+
+    # Check /workspace for devcontainer
+    if Path("/workspace/backend/src/intric").exists():
+        return "/workspace"
+
+    return None
+
+
+def get_changed_python_files(repo_root: str) -> list[str]:
     """Get Python files changed in worktree (staged + unstaged + untracked)."""
     files = []
 
     # Staged + unstaged changes
     result = subprocess.run(
-        ["git", "-C", project_dir, "diff", "--name-only", "HEAD", "--",
+        ["git", "-C", repo_root, "diff", "--name-only", "HEAD", "--",
          "backend/src/intric"],
         capture_output=True, text=True
     )
@@ -25,7 +61,7 @@ def get_changed_python_files(project_dir: str) -> list[str]:
 
     # Untracked files
     result = subprocess.run(
-        ["git", "-C", project_dir, "ls-files", "--others", "--exclude-standard",
+        ["git", "-C", repo_root, "ls-files", "--others", "--exclude-standard",
          "backend/src/intric"],
         capture_output=True, text=True
     )
@@ -36,9 +72,9 @@ def get_changed_python_files(project_dir: str) -> list[str]:
     return [f for f in files if f and f.endswith('.py')]
 
 
-def run_typecheck(project_dir: str) -> tuple[bool, str]:
+def run_typecheck(repo_root: str) -> tuple[bool, str]:
     """Run typecheck_changed.sh and return (success, output)."""
-    script = Path(project_dir) / "backend" / "scripts" / "typecheck_changed.sh"
+    script = Path(repo_root) / "backend" / "scripts" / "typecheck_changed.sh"
     if not script.exists():
         return True, ""
 
@@ -55,7 +91,7 @@ def run_typecheck(project_dir: str) -> tuple[bool, str]:
     # Check if pyright is available via uv (soft-fail if not installed)
     pyright_check = subprocess.run(
         ["uv", "run", "pyright", "--version"],
-        cwd=Path(project_dir) / "backend",
+        cwd=Path(repo_root) / "backend",
         capture_output=True, text=True
     )
     if pyright_check.returncode != 0:
@@ -64,7 +100,7 @@ def run_typecheck(project_dir: str) -> tuple[bool, str]:
     try:
         result = subprocess.run(
             ["bash", str(script)],
-            cwd=Path(project_dir) / "backend",
+            cwd=Path(repo_root) / "backend",
             capture_output=True, text=True,
             timeout=120
         )
@@ -89,13 +125,18 @@ def main():
 
     project_dir = os.environ.get("CLAUDE_PROJECT_DIR", input_data.get("cwd", os.getcwd()))
 
+    # Find the actual repo root (handles nested setups, devcontainer, etc.)
+    repo_root = find_repo_root(project_dir)
+    if not repo_root:
+        sys.exit(0)  # Not in an eneo repo, skip
+
     # Check if any Python files in scope were changed
-    changed_files = get_changed_python_files(project_dir)
+    changed_files = get_changed_python_files(repo_root)
     if not changed_files:
         sys.exit(0)  # No Python files changed, skip
 
     # Run type check
-    success, output = run_typecheck(project_dir)
+    success, output = run_typecheck(repo_root)
 
     if not success and output:
         # Limit output to top errors for readability

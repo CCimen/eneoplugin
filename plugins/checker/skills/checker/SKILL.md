@@ -10,8 +10,14 @@ Run type checking for the eneo backend Python codebase.
 
 ## Command
 
+Find the repo root and run the typecheck script:
+
 ```bash
-cd "$CLAUDE_PROJECT_DIR/backend" && ./scripts/typecheck_changed.sh
+# Find repo root (handles nested setups, devcontainer, etc.)
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "$CLAUDE_PROJECT_DIR")
+[ -d "$REPO_ROOT/backend/src/intric" ] || REPO_ROOT="$CLAUDE_PROJECT_DIR/eneo"
+[ -d "$REPO_ROOT/backend/src/intric" ] || REPO_ROOT="/workspace"
+cd "$REPO_ROOT/backend" && ./scripts/typecheck_changed.sh
 ```
 
 ## How It Works
