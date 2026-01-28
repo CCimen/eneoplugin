@@ -10,10 +10,12 @@ A Claude Code plugin marketplace with AI team behavioral guidelines for Eneo dev
 /plugin marketplace add CCimen/eneoplugin
 ```
 
-### 2. Install the plugin
+### 2. Install plugins
 
 ```
 /plugin install karpathy-guidelines@eneoplugin
+/plugin install frontend-design@eneoplugin
+/plugin install checker@eneoplugin
 ```
 
 ## Available Plugins
@@ -29,6 +31,14 @@ Behavioral guidelines to reduce common LLM coding mistakes. Includes:
   4. Goal-Driven Execution
 
 - **Skill** - Invoke with `/karpathy-guidelines` for detailed guidance when writing, reviewing, or refactoring code.
+
+### frontend-design
+
+Create distinctive, production-grade frontend interfaces with high design quality. Includes:
+
+- **Skill** - Invoke with `/frontend-design` when building web components, pages, dashboards, or any web UI.
+
+Focuses on bold aesthetic choices, avoiding generic "AI slop" aesthetics. Emphasizes typography, color themes, motion, spatial composition, and visual details.
 
 ### checker
 
@@ -48,10 +58,12 @@ Automated Pyright type checking for the eneo Python backend. Includes:
 
 ## Usage
 
-Once installed, the CLAUDE.md guidelines are automatically applied. To explicitly invoke the skill:
+Once installed, CLAUDE.md guidelines are automatically applied. Invoke skills manually:
 
 ```
-/karpathy-guidelines
+/karpathy-guidelines    # Coding guidelines
+/frontend-design        # UI design guidance
+/checker                # Run type checks
 ```
 
 ## License
