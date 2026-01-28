@@ -1,0 +1,9 @@
+{
+  "name": "eneoplugin",
+  "description": "AI team behavioral guidelines and skills for Eneo developers",
+  "version": "1.0.0",
+  "author": {
+    "name": "Eneo AI Team"
+  },
+  "license": "MIT"
+}
