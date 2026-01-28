@@ -2,24 +2,54 @@
 
 This project uses Pyright for Python type checking with a ratcheting strategy.
 
-## Proactive Type Checking (MCP Tool)
+## CRITICAL: Type Check After Every Python Edit
 
-**Use the `typecheck` tool PROACTIVELY** after editing Python files in `backend/src/intric/`. Don't wait for the Stop hook - check files immediately after editing to catch errors early.
+**You MUST follow this workflow when editing Python files in `backend/src/intric/`:**
 
 ```
-typecheck(files=["src/intric/files/file_service.py"])  # Check specific file
-typecheck(files=[])                                      # Check all changed files
+1. Edit file
+2. Run typecheck on that file immediately
+3. If errors → fix them → run typecheck again
+4. Only when clean → continue to next task
 ```
 
-The tool respects ratcheting - you'll only see NEW errors you introduced, not legacy errors.
+This is NOT optional. Type errors caught early are easy to fix. Type errors caught at the end (by the Stop hook) mean you've built broken code on top of broken code.
 
-## Automatic Safety Net (Stop Hook)
+## How to Type Check
 
-A Stop hook automatically runs when you finish editing, checking ALL changed Python files. If errors are found, you'll receive feedback and must fix them before continuing.
+After editing a Python file, call the typecheck MCP tool:
+
+```
+typecheck(files=["src/intric/path/to/file.py"])
+```
+
+The tool shows only NEW errors you introduced (not legacy errors), so the output is always actionable.
+
+## Example Workflow
+
+```
+1. You edit src/intric/files/file_service.py
+2. You call: typecheck(files=["src/intric/files/file_service.py"])
+3. Result shows 2 errors
+4. You fix the errors
+5. You call typecheck again
+6. Result: "No type errors" ✓
+7. Now continue to next file or task
+```
+
+## Safety Net (Stop Hook)
+
+A Stop hook runs automatically when you finish, checking ALL changed files. This catches anything you missed. But don't rely on it - check as you go for a smoother workflow.
 
 ## Manual Check
 
-Run `/checker` to manually check types at any time.
+Run `/checker` to manually check all changed files at any time.
+
+## Ratcheting Strategy
+
+- **New files**: Must pass strict Pyright checks (all errors fail)
+- **Modified files**: Only NEW errors (not in baseline) will fail
+- **Baseline**: `.pyright-baseline.json` captures known legacy issues
 
 ## Configuration
 
@@ -27,9 +57,3 @@ Run `/checker` to manually check types at any time.
 |---------------------|--------|
 | `TYPECHECK_DISABLE=1` | Completely disable type checking |
 | `TYPECHECK_WARN_ONLY=1` | Show errors but don't block |
-
-## Ratcheting Strategy
-
-- **New files**: Must pass strict Pyright checks
-- **Modified files**: Only NEW errors (not in baseline) will fail
-- **Baseline**: `.pyright-baseline.json` captures known issues

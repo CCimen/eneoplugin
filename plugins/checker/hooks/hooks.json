@@ -1,6 +1,18 @@
 {
-  "description": "Run Pyright type checking when Claude finishes editing Python files",
+  "description": "Pyright type checking with edit reminders and stop hook safety net",
   "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/typecheck-reminder.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
