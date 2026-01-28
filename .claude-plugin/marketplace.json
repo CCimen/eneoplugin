@@ -8,6 +8,11 @@
       "name": "karpathy-guidelines",
       "source": "./plugins/karpathy-guidelines",
       "description": "Behavioral guidelines to reduce common LLM coding mistakes"
+    },
+    {
+      "name": "frontend-design",
+      "source": "./plugins/frontend-design",
+      "description": "Create distinctive, production-grade frontend interfaces with high design quality"
     }
   ]
 }
