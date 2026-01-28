@@ -1,0 +1,5 @@
+{
+  "name": "checker",
+  "description": "Automated Pyright type checking for eneo Python backend",
+  "version": "1.0.0"
+}

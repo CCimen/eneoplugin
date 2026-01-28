@@ -13,6 +13,11 @@
       "name": "frontend-design",
       "source": "./plugins/frontend-design",
       "description": "Create distinctive, production-grade frontend interfaces with high design quality"
+    },
+    {
+      "name": "checker",
+      "source": "./plugins/checker",
+      "description": "Automated Pyright type checking for eneo Python backend"
     }
   ]
 }

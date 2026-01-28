@@ -1,0 +1,16 @@
+{
+  "description": "Run Pyright type checking when Claude finishes editing Python files",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/typecheck-stop.py\"",
+            "timeout": 180
+          }
+        ]
+      }
+    ]
+  }
+}
