@@ -20,6 +20,8 @@ Set environment variables (do not commit these):
 - Optional: `VIKUNJA_PROJECT_NAME` (default: `Internal TODO`)
 - Optional: `VIKUNJA_VIEW_NAME` (default: `Kanban`)
 
+If environment variables are not set, the script will attempt to read `~/.zshrc` for `export VIKUNJA_*` entries.
+
 **Finding the API token:** in the Vikunja web UI, open your user settings and create an API token.
 
 ## Commands

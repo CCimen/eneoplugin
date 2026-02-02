@@ -34,8 +34,52 @@ def die(message: str) -> None:
     raise SystemExit(1)
 
 
+
+
+_ZSHRC_LOADED = False
+
+
+def load_zshrc_env() -> None:
+    global _ZSHRC_LOADED
+    if _ZSHRC_LOADED:
+        return
+    _ZSHRC_LOADED = True
+
+    zshrc_path = os.path.expanduser("~/.zshrc")
+    if not os.path.isfile(zshrc_path):
+        return
+
+    try:
+        lines = Path(zshrc_path).read_text().splitlines()
+    except OSError:
+        return
+
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith('#'):
+            continue
+        if line.startswith('export '):
+            line = line[len('export '):].strip()
+        if not line.startswith('VIKUNJA_'):
+            continue
+        if '=' not in line:
+            continue
+        key, val = line.split('=', 1)
+        key = key.strip()
+        val = val.strip()
+        if not (val.startswith('"') or val.startswith("'")) and '#' in val:
+            val = val.split('#', 1)[0].rstrip()
+        if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+            val = val[1:-1]
+        if key and key not in os.environ:
+            os.environ[key] = val
+
+
 def get_env(name: str, default: Optional[str] = None, required: bool = False) -> str:
     value = os.environ.get(name, default)
+    if not value:
+        load_zshrc_env()
+        value = os.environ.get(name, default)
     if required and not value:
         die(f"Missing required env var: {name}")
     return value or ""
