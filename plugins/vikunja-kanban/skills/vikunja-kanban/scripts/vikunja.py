@@ -18,6 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import date
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 MANAGED_MARKER = "<!-- vikunja-skill:managed -->"
@@ -255,13 +256,13 @@ def render_template(template: str, values: Dict[str, str]) -> str:
     return rendered
 
 
-def status_block(summary: str, progress: str) -> str:
+def status_block(summary_html: str, progress: str) -> str:
     today = date.today().isoformat()
     lines = [
-        "<h2>Status</h2>",
         STATUS_START,
-        f"<p><strong>Sammanfattning:</strong> {summary}</p>",
-        f"<p><strong>Progress:</strong> {progress}</p>",
+        "<p><strong>Sammanfattning:</strong></p>",
+        summary_html,
+        f"<p><strong>Progress:</strong> {escape_html(progress)}</p>",
         f"<p><strong>Senast uppdaterad:</strong> {today}</p>",
         STATUS_END,
     ]
@@ -286,15 +287,86 @@ def escape_html(value: str) -> str:
 def format_html_block(value: str) -> str:
     value = value.strip()
     if not value:
-        return '<p>–</p>'
-    lines = [line.strip() for line in value.splitlines() if line.strip()]
+        return "<p>–</p>"
+
+    raw_lines = [line.rstrip() for line in value.splitlines()]
+    lines = [line for line in raw_lines if line.strip()]
     if not lines:
-        return '<p>–</p>'
-    if all(line.startswith(('-', '*')) for line in lines):
-        items = ''.join(f"<li>{escape_html(line[1:].strip())}</li>" for line in lines)
-        return f"<ul>{items}</ul>"
-    escaped = '<br>'.join(escape_html(line) for line in lines)
+        return "<p>–</p>"
+
+    if all(_is_list_line(line) for line in lines):
+        return _render_list(lines)
+
+    escaped = "<br>".join(escape_html(line.strip()) for line in lines)
     return f"<p>{escaped}</p>"
+
+
+def _is_list_line(line: str) -> bool:
+    stripped = line.lstrip(" \t")
+    return stripped.startswith(("-", "*"))
+
+
+def _render_list(lines: list[str]) -> str:
+    expanded = [line.replace("\t", "  ") for line in lines]
+    min_indent = min(len(line) - len(line.lstrip(" ")) for line in expanded)
+    items: list[tuple[int, str]] = []
+    for line in expanded:
+        indent = len(line) - len(line.lstrip(" "))
+        content = line.lstrip()
+        if content.startswith(("-", "*")):
+            content = content[1:].lstrip()
+        level = max(0, (indent - min_indent) // 2)
+        items.append((min(level, 2), _apply_checkbox(content)))
+    return _render_nested_list(items)
+
+
+def _apply_checkbox(content: str) -> str:
+    lowered = content.lower()
+    if lowered.startswith("[ ]"):
+        return "☐ " + content[3:].lstrip()
+    if lowered.startswith("[x]"):
+        return "☑ " + content[3:].lstrip()
+    return content
+
+
+def _render_nested_list(items: list[tuple[int, str]]) -> str:
+    parts: list[str] = ["<ul>"]
+    current_level = 0
+    open_li = [False]
+
+    for level, content in items:
+        if level > current_level:
+            while current_level < level:
+                parts.append("<ul>")
+                current_level += 1
+                open_li.append(False)
+        elif level < current_level:
+            while current_level > level:
+                if open_li[current_level]:
+                    parts.append("</li>")
+                    open_li[current_level] = False
+                parts.append("</ul>")
+                open_li.pop()
+                current_level -= 1
+
+        if open_li[current_level]:
+            parts.append("</li>")
+            open_li[current_level] = False
+
+        parts.append(f"<li>{escape_html(content)}")
+        open_li[current_level] = True
+
+    while current_level > 0:
+        if open_li[current_level]:
+            parts.append("</li>")
+        parts.append("</ul>")
+        open_li.pop()
+        current_level -= 1
+
+    if open_li[0]:
+        parts.append("</li>")
+    parts.append("</ul>")
+    return "".join(parts)
 
 
 def parse_labels(raw: str) -> list[str]:
@@ -302,9 +374,16 @@ def parse_labels(raw: str) -> list[str]:
 
 
 def ensure_labels_for_task(base_url: str, token: str, task_id: int, labels: list[str]) -> None:
+    if not labels:
+        return
+    task = get_task(base_url, token, task_id)
+    existing = {label.get("title", "").strip().lower() for label in task.get("labels", []) or []}
     for label in labels:
+        if label.strip().lower() in existing:
+            continue
         label_id = ensure_label_id(base_url, token, label)
         add_label_to_task(base_url, token, task_id, label_id)
+        existing.add(label.strip().lower())
 
 
 def remove_label_from_task(base_url: str, token: str, task_id: int, label_id: int) -> None:
@@ -417,7 +496,10 @@ def cmd_ensure_task(args: argparse.Namespace) -> None:
     else:
         template_path = os.path.join(os.path.dirname(__file__), "..", "assets", "task_description_template.md")
         template = load_asset(template_path)
-        pr_link = args.pr_url or (f"PR #{args.pr_number}" if args.pr_number else "–")
+        pr_section_html = ""
+        if args.pr_url or args.pr_number:
+            pr_label = args.pr_url or f"PR #{args.pr_number}"
+            pr_section_html = "<h3>PR</h3>\n" + format_html_block(pr_label)
         description = render_template(
             template,
             {
@@ -425,7 +507,7 @@ def cmd_ensure_task(args: argparse.Namespace) -> None:
                 "requirements_html": format_html_block(normalize_field(args.requirements)),
                 "solution_html": format_html_block(normalize_field(args.solution)),
                 "definition_of_done_html": format_html_block(normalize_field(args.definition)),
-                "pr_link_html": format_html_block(pr_link),
+                "pr_section_html": pr_section_html,
                 "summary_html": escape_html("Ej påbörjat"),
                 "progress": "0/0 (0%)",
                 "date": date.today().isoformat(),
@@ -615,12 +697,16 @@ def cmd_labels(args: argparse.Namespace) -> None:
     token = args.token or get_env("VIKUNJA_API_TOKEN", required=True)
 
     task_id = args.task_id
+    task = get_task(base_url, token, task_id)
+    existing = {label.get("title", "").strip().lower(): int(label["id"]) for label in task.get("labels", []) or []}
+
     if args.add:
-        ensure_labels_for_task(base_url, token, task_id, parse_labels(args.add))
+        to_add = [label for label in parse_labels(args.add) if label.strip().lower() not in existing]
+        ensure_labels_for_task(base_url, token, task_id, to_add)
 
     if args.remove:
         for label in parse_labels(args.remove):
-            label_id = find_label_id(base_url, token, label)
+            label_id = existing.get(label.strip().lower())
             if label_id:
                 remove_label_from_task(base_url, token, task_id, label_id)
 

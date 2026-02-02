@@ -53,6 +53,8 @@ Matching logic:
 If no match is found, the task is created in the **Idé** column with a managed marker:
 `<!-- vikunja-skill:managed -->`
 
+If no PR number or URL is provided, the **PR** section is omitted from the description.
+
 
 
 ### 1b) Ensure a task with labels
@@ -62,6 +64,8 @@ python3 scripts/vikunja.py ensure-task
   --title "Audit logging"
   --labels "security,audit"
 ```
+
+Labels are idempotent: adding a label that already exists on the task does nothing (no error).
 
 
 ### 2) Progress update
@@ -81,6 +85,8 @@ python3 scripts/vikunja.py progress-update
 ```
 
 If the task is managed (marker present), a small **Status** block in the description is updated. Otherwise, only a comment is added.
+
+**Formatting tips:** you can pass bullet lists with `-` and nested items via indentation (two spaces). Use checkboxes with `- [ ]` and `- [x]` to render ☐ / ☑ in the UI.
 
 ### 3) Link PR to a task
 
@@ -110,6 +116,8 @@ python3 scripts/vikunja.py labels
   --task-id 84
   --replace "security,high"
 ```
+
+Removing a label that isn’t on the task is a no-op.
 
 
 ### 4) Move a task (optional)
