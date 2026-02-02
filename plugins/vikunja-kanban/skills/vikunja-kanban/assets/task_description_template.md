@@ -1,23 +1,22 @@
 <!-- vikunja-skill:managed -->
+<h2>Mål</h2>
+<p>{{goal}}</p>
 
-# Mål
-{{goal}}
+<h2>Krav</h2>
+<p>{{requirements}}</p>
 
-# Krav
-{{requirements}}
+<h2>Föreslagen lösning</h2>
+<p>{{solution}}</p>
 
-# Föreslagen lösning
-{{solution}}
+<h2>Definition of done</h2>
+<p>{{definition_of_done}}</p>
 
-# Definition of done
-{{definition_of_done}}
+<h2>PR</h2>
+<p>{{pr_link}}</p>
 
-# PR
-{{pr_link}}
-
-# Status
+<h2>Status</h2>
 <!-- vikunja-skill:status-start -->
-Sammanfattning: {{summary}}
-Progress: {{progress}}
-Senast uppdaterad: {{date}}
+<p><strong>Sammanfattning:</strong> {{summary}}</p>
+<p><strong>Progress:</strong> {{progress}}</p>
+<p><strong>Senast uppdaterad:</strong> {{date}}</p>
 <!-- vikunja-skill:status-end -->

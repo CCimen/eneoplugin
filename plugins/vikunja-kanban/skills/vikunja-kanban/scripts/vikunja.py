@@ -213,11 +213,11 @@ def render_template(template: str, values: Dict[str, str]) -> str:
 def status_block(summary: str, progress: str) -> str:
     today = date.today().isoformat()
     lines = [
-        "# Status",
+        "<h2>Status</h2>",
         STATUS_START,
-        f"Sammanfattning: {summary}",
-        f"Progress: {progress}",
-        f"Senast uppdaterad: {today}",
+        f"<p><strong>Sammanfattning:</strong> {summary}</p>",
+        f"<p><strong>Progress:</strong> {progress}</p>",
+        f"<p><strong>Senast uppdaterad:</strong> {today}</p>",
         STATUS_END,
     ]
     return "\n".join(lines)
