@@ -1,16 +1,16 @@
 <h3>Sammanfattning</h3>
-<p>{{summary}}</p>
+{{summary_html}}
 
 <h3>Klart</h3>
-<p>{{completed}}</p>
+{{completed_html}}
 
 <h3>Pågår</h3>
-<p>{{in_progress}}</p>
+{{in_progress_html}}
 
 <h3>Nästa steg</h3>
-<p>{{next_steps}}</p>
+{{next_steps_html}}
 
 <h3>Blockerare</h3>
-<p>{{blockers}}</p>
+{{blockers_html}}
 
 <p><strong>Progress:</strong> {{done}}/{{total}} ({{percent}}%)</p>

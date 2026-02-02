@@ -10,6 +10,7 @@ Safe defaults:
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import sys
@@ -223,8 +224,8 @@ def status_block(summary: str, progress: str) -> str:
     return "\n".join(lines)
 
 
-def update_status_in_description(description: str, summary: str, progress: str) -> str:
-    block = status_block(summary, progress)
+def update_status_in_description(description: str, summary_html: str, progress: str) -> str:
+    block = status_block(summary_html, progress)
     if STATUS_START in description and STATUS_END in description:
         before = description.split(STATUS_START)[0].rstrip()
         after = description.split(STATUS_END)[1].lstrip()
@@ -232,6 +233,42 @@ def update_status_in_description(description: str, summary: str, progress: str) 
     return description.rstrip() + "\n\n" + block + "\n"
 
 
+
+
+def escape_html(value: str) -> str:
+    return html.escape(value, quote=True)
+
+
+def format_html_block(value: str) -> str:
+    value = value.strip()
+    if not value:
+        return '<p>–</p>'
+    lines = [line.strip() for line in value.splitlines() if line.strip()]
+    if not lines:
+        return '<p>–</p>'
+    if all(line.startswith(('-', '*')) for line in lines):
+        items = ''.join(f"<li>{escape_html(line[1:].strip())}</li>" for line in lines)
+        return f"<ul>{items}</ul>"
+    escaped = '<br>'.join(escape_html(line) for line in lines)
+    return f"<p>{escaped}</p>"
+
+
+def parse_labels(raw: str) -> list[str]:
+    return [label.strip() for label in raw.split(',') if label.strip()]
+
+
+def ensure_labels_for_task(base_url: str, token: str, task_id: int, labels: list[str]) -> None:
+    for label in labels:
+        label_id = ensure_label_id(base_url, token, label)
+        add_label_to_task(base_url, token, task_id, label_id)
+
+
+def remove_label_from_task(base_url: str, token: str, task_id: int, label_id: int) -> None:
+    request_json('DELETE', base_url, token, f"/tasks/{task_id}/labels/{label_id}")
+
+
+def replace_task_labels(base_url: str, token: str, task_id: int, label_ids: list[int]) -> None:
+    request_json('POST', base_url, token, f"/tasks/{task_id}/labels/bulk", payload={"labels": label_ids})
 def normalize_field(value: Optional[str]) -> str:
     if value is None:
         return "–"
@@ -340,12 +377,12 @@ def cmd_ensure_task(args: argparse.Namespace) -> None:
         description = render_template(
             template,
             {
-                "goal": normalize_field(args.goal),
-                "requirements": normalize_field(args.requirements),
-                "solution": normalize_field(args.solution),
-                "definition_of_done": normalize_field(args.definition),
-                "pr_link": pr_link,
-                "summary": "Ej påbörjat",
+                "goal_html": format_html_block(normalize_field(args.goal)),
+                "requirements_html": format_html_block(normalize_field(args.requirements)),
+                "solution_html": format_html_block(normalize_field(args.solution)),
+                "definition_of_done_html": format_html_block(normalize_field(args.definition)),
+                "pr_link_html": format_html_block(pr_link),
+                "summary_html": escape_html("Ej påbörjat"),
                 "progress": "0/0 (0%)",
                 "date": date.today().isoformat(),
             },
@@ -372,6 +409,9 @@ def cmd_ensure_task(args: argparse.Namespace) -> None:
 
     if args.pr_url:
         add_comment(base_url, token, task_id, f"PR: {args.pr_url}")
+
+    if args.labels:
+        ensure_labels_for_task(base_url, token, task_id, parse_labels(args.labels))
 
     print(json.dumps({"action": "created", "task": created}, ensure_ascii=False, indent=2))
 
@@ -414,11 +454,11 @@ def cmd_progress_update(args: argparse.Namespace) -> None:
     comment = render_template(
         template,
         {
-            "summary": normalize_field(args.summary),
-            "completed": normalize_field(args.completed),
-            "in_progress": normalize_field(args.in_progress),
-            "next_steps": normalize_field(args.next_steps),
-            "blockers": normalize_field(args.blockers),
+            "summary_html": format_html_block(normalize_field(args.summary)),
+            "completed_html": format_html_block(normalize_field(args.completed)),
+            "in_progress_html": format_html_block(normalize_field(args.in_progress)),
+            "next_steps_html": format_html_block(normalize_field(args.next_steps)),
+            "blockers_html": format_html_block(normalize_field(args.blockers)),
             "done": str(done),
             "total": str(total),
             "percent": str(percent),
@@ -434,7 +474,7 @@ def cmd_progress_update(args: argparse.Namespace) -> None:
         progress = f"{done}/{total} ({percent}%)" if total > 0 else "–"
         updated["description"] = update_status_in_description(
             updated.get("description", ""),
-            normalize_field(args.summary),
+            format_html_block(normalize_field(args.summary)),
             progress,
         )
 
@@ -524,6 +564,28 @@ def cmd_move_task(args: argparse.Namespace) -> None:
     print(json.dumps({"action": "moved", "task_id": task["id"], "bucket_id": bucket_id}, ensure_ascii=False, indent=2))
 
 
+
+
+def cmd_labels(args: argparse.Namespace) -> None:
+    base_url = args.base_url or get_env("VIKUNJA_BASE_URL", required=True)
+    token = args.token or get_env("VIKUNJA_API_TOKEN", required=True)
+
+    task_id = args.task_id
+    if args.add:
+        ensure_labels_for_task(base_url, token, task_id, parse_labels(args.add))
+
+    if args.remove:
+        for label in parse_labels(args.remove):
+            label_id = find_label_id(base_url, token, label)
+            if label_id:
+                remove_label_from_task(base_url, token, task_id, label_id)
+
+    if args.replace:
+        label_ids = [ensure_label_id(base_url, token, label) for label in parse_labels(args.replace)]
+        replace_task_labels(base_url, token, task_id, label_ids)
+
+    print(json.dumps({"action": "labels-updated", "task_id": task_id}, ensure_ascii=False, indent=2))
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Vikunja Kanban helper")
     parser.add_argument("--base-url", dest="base_url", help="Override VIKUNJA_BASE_URL")
@@ -547,6 +609,7 @@ def build_parser() -> argparse.ArgumentParser:
     ensure.add_argument("--pr-url")
     ensure.add_argument("--branch")
     ensure.add_argument("--task-id", type=int)
+    ensure.add_argument("--labels", help="Comma-separated labels to add")
     ensure.set_defaults(func=cmd_ensure_task)
 
     progress = sub.add_parser("progress-update", help="Post progress update and update percent_done")
@@ -578,6 +641,13 @@ def build_parser() -> argparse.ArgumentParser:
     move.add_argument("--title")
     move.add_argument("--to", required=True, help="Bucket name")
     move.set_defaults(func=cmd_move_task)
+
+    labels_cmd = sub.add_parser("labels", help="Manage task labels")
+    labels_cmd.add_argument("--task-id", type=int, required=True)
+    labels_cmd.add_argument("--add", help="Comma-separated labels to add")
+    labels_cmd.add_argument("--remove", help="Comma-separated labels to remove")
+    labels_cmd.add_argument("--replace", help="Comma-separated labels to replace")
+    labels_cmd.set_defaults(func=cmd_labels)
 
     return parser
 

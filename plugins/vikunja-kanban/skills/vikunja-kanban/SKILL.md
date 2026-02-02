@@ -51,6 +51,17 @@ Matching logic:
 If no match is found, the task is created in the **Idé** column with a managed marker:
 `<!-- vikunja-skill:managed -->`
 
+
+
+### 1b) Ensure a task with labels
+
+```bash
+python3 scripts/vikunja.py ensure-task
+  --title "Audit logging"
+  --labels "security,audit"
+```
+
+
 ### 2) Progress update
 
 Adds a Swedish high-level status comment and updates `percent_done`:
@@ -79,6 +90,25 @@ python3 scripts/vikunja.py link-pr
 ```
 
 Adds label `pr-84` and a short comment with the PR URL. No description edits unless the managed marker exists.
+
+
+
+### 3b) Manage labels on a task
+
+```bash
+python3 scripts/vikunja.py labels
+  --task-id 84
+  --add "security,audit"
+
+python3 scripts/vikunja.py labels
+  --task-id 84
+  --remove "legacy"
+
+python3 scripts/vikunja.py labels
+  --task-id 84
+  --replace "security,high"
+```
+
 
 ### 4) Move a task (optional)
 

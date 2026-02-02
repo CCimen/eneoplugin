@@ -38,3 +38,9 @@ Use `Authorization: Bearer <token>`.
 
 - `GET /tasks/{taskID}/comments` — list comments
 - `PUT /tasks/{taskID}/comments` — add comment
+
+
+## Labels (extra)
+
+- `DELETE /tasks/{task}/labels/{label}` — remove label from task
+- `POST /tasks/{taskID}/labels/bulk` — replace task labels in bulk
