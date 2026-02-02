@@ -18,6 +18,11 @@
       "name": "checker",
       "source": "./plugins/checker",
       "description": "Automated Pyright type checking for eneo Python backend"
+    },
+    {
+      "name": "vikunja-kanban",
+      "source": "./plugins/vikunja-kanban",
+      "description": "Create and update Vikunja Kanban cards with safe, high-level progress updates"
     }
   ]
 }
