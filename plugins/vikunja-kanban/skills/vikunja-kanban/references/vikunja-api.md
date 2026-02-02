@@ -22,6 +22,7 @@ Use `Authorization: Bearer <token>`.
 - `PUT /projects/{id}/tasks` — create task in project
 - `GET /tasks/{id}` — get task
 - `POST /tasks/{id}` — update task
+- `percent_done` expects a ratio between `0.0` and `1.0` (UI displays as percentage).
 
 ## Task position / bucket
 

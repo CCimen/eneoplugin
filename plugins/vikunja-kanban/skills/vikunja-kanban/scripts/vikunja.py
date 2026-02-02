@@ -571,9 +571,11 @@ def cmd_progress_update(args: argparse.Namespace) -> None:
 
     done = args.done
     total = args.total
-    percent = 0
+    ratio = 0.0
     if total and total > 0:
-        percent = round((done / total) * 100)
+        ratio = done / total
+    ratio = max(0.0, min(1.0, ratio))
+    percent = round(ratio * 100)
 
     template_path = os.path.join(os.path.dirname(__file__), "..", "assets", "progress_comment_template.md")
     template = load_asset(template_path)
@@ -594,7 +596,7 @@ def cmd_progress_update(args: argparse.Namespace) -> None:
     add_comment(base_url, token, int(task["id"]), comment)
 
     updated = get_task(base_url, token, int(task["id"]))
-    updated["percent_done"] = percent
+    updated["percent_done"] = ratio
 
     if is_managed(updated.get("description", "")):
         progress = f"{done}/{total} ({percent}%)" if total > 0 else "–"
