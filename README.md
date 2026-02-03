@@ -16,6 +16,7 @@ A Claude Code plugin marketplace with AI team behavioral guidelines for Eneo dev
 /plugin install karpathy-guidelines@eneoplugin
 /plugin install frontend-design@eneoplugin
 /plugin install checker@eneoplugin
+/plugin install vikunja-kanban@eneoplugin
 ```
 
 ## Available Plugins
@@ -56,6 +57,20 @@ Automated Pyright type checking for the eneo Python backend. Includes:
 | `TYPECHECK_DISABLE=1` | Completely disable type checking |
 | `TYPECHECK_WARN_ONLY=1` | Show errors but don't block |
 
+### vikunja-kanban
+
+Create and update Vikunja Kanban cards with safe, high-level Swedish progress updates. Includes:
+
+- **Skill** - Invoke with `/vikunja-kanban` to create cards, link PRs, post progress updates, move tasks, and manage labels.
+
+**Configuration:**
+| Environment Variable | Effect |
+|---------------------|--------|
+| `VIKUNJA_BASE_URL` | Vikunja server root (no `/api/v1`) |
+| `VIKUNJA_API_TOKEN` | API token (Bearer token) |
+| `VIKUNJA_PROJECT_NAME` | Default project name (default: `Internal TODO`) |
+| `VIKUNJA_VIEW_NAME` | Default view name (default: `Kanban`) |
+
 ## Usage
 
 Once installed, CLAUDE.md guidelines are automatically applied. Invoke skills manually:
@@ -64,6 +79,7 @@ Once installed, CLAUDE.md guidelines are automatically applied. Invoke skills ma
 /karpathy-guidelines    # Coding guidelines
 /frontend-design        # UI design guidance
 /checker                # Run type checks
+/vikunja-kanban         # Vikunja Kanban card management
 ```
 
 ## License
