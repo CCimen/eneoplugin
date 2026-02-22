@@ -1,0 +1,5 @@
+{
+  "name": "codex-review",
+  "description": "Multi-persona peer review via OpenAI Codex CLI — always-on big brother for Eneo architecture, code quality, and implementation verification",
+  "version": "1.0.0"
+}

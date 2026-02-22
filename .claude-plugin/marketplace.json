@@ -23,6 +23,11 @@
       "name": "vikunja-kanban",
       "source": "./plugins/vikunja-kanban",
       "description": "Create and update Vikunja Kanban cards with safe, high-level progress updates"
+    },
+    {
+      "name": "codex-review",
+      "source": "./plugins/codex-review",
+      "description": "Multi-persona peer review via OpenAI Codex CLI for Eneo architecture and code quality"
     }
   ]
 }
