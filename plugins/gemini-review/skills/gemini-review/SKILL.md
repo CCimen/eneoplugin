@@ -166,13 +166,42 @@ Be direct. Don't repeat what Codex already said unless you disagree with it.
 Focus on what's NEW from your perspective.
 ```
 
-## Model
+## Model & Authentication Selection
 
-Always use `gemini-3.1-pro-preview`. No model selection needed — single model for all reviews.
+Gemini CLI supports two authentication modes with different model availability:
+
+| Mode | Auth Method | Model | Best For |
+|------|-------------|-------|----------|
+| **Google Account** (default) | OAuth login via `gemini` | `gemini-3-pro-preview` | Daily use, no API key needed |
+| **API Key** | `GEMINI_API_KEY` env var | `gemini-3.1-pro-preview` | Newest model, requires AI Studio API key |
+
+### Selection Protocol
+
+**Before the first Gemini invocation in a session**, Claude MUST ask the user which
+mode to use via `AskUserQuestion`:
+
+- **Question:** "Which Gemini model should this review use?"
+- **Header:** "Gemini model"
+- **Options:**
+  1. `Gemini 3 Pro — Google Account (Recommended)` — Uses OAuth login, no API key needed. Model: gemini-3-pro-preview
+  2. `Gemini 3.1 Pro — API Key` — Uses GEMINI_API_KEY for access to the newest model. Model: gemini-3.1-pro-preview
+
+Once chosen, use the same mode for ALL Gemini calls within the session (including
+resume iterations). Do NOT ask again for subsequent invocations in the same session.
 
 ## Command Reference
 
 ### Initial Cross-Check
+
+**Google Account mode (gemini-3-pro-preview):**
+
+```bash
+gemini -m gemini-3-pro-preview \
+  --approval-mode yolo \
+  "<constructed prompt>" 2>/dev/null
+```
+
+**API Key mode (gemini-3.1-pro-preview):**
 
 ```bash
 gemini -m gemini-3.1-pro-preview \
@@ -184,13 +213,14 @@ gemini -m gemini-3.1-pro-preview \
 - `--approval-mode yolo`: auto-approves file reads so Gemini can explore the codebase
 - `2>/dev/null`: suppress debug/status output to keep Claude's context clean
 - Gemini runs from the current working directory (same as the Eneo project)
+- Auth mode determines which model flag to use — that's the only difference in the command
 
 ### Resume for Iteration
 
-When iterating on a cross-check, resume the previous Gemini session:
+When iterating on a cross-check, resume the previous Gemini session with the same model:
 
 ```bash
-gemini -m gemini-3.1-pro-preview \
+gemini -m <chosen-model> \
   --approval-mode yolo \
   -r "latest" \
   "<follow-up prompt>" 2>/dev/null
@@ -203,14 +233,14 @@ The resumed session maintains all previous context.
 For prompts that are too long for a positional argument, pipe via stdin:
 
 ```bash
-echo "<long constructed prompt>" | gemini -m gemini-3.1-pro-preview \
+echo "<long constructed prompt>" | gemini -m <chosen-model> \
   --approval-mode yolo 2>/dev/null
 ```
 
 Or use a heredoc for multi-line prompts:
 
 ```bash
-gemini -m gemini-3.1-pro-preview --approval-mode yolo - 2>/dev/null <<'PROMPT'
+gemini -m <chosen-model> --approval-mode yolo - 2>/dev/null <<'PROMPT'
 <multi-line prompt content>
 PROMPT
 ```
