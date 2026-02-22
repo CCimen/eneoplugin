@@ -28,6 +28,11 @@
       "name": "codex-review",
       "source": "./plugins/codex-review",
       "description": "Multi-persona peer review via OpenAI Codex CLI for Eneo architecture and code quality"
+    },
+    {
+      "name": "gemini-review",
+      "source": "./plugins/gemini-review",
+      "description": "Architectural cross-verification via Google Gemini CLI — validates Claude + Codex conclusions"
     }
   ]
 }
