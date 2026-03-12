@@ -1,0 +1,5 @@
+{
+  "name": "github-findings",
+  "description": "Create, list, and grab GitHub issues from the eneo project board",
+  "version": "1.0.0"
+}
