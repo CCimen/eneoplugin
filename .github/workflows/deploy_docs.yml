@@ -41,6 +41,8 @@ jobs:
       - name: Build docs site
         working-directory: ./docs-site
         run: bun run build
+        env:
+          PAGES_BASE_PATH: /${{ github.event.repository.name }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
