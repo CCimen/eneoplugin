@@ -1,0 +1,34 @@
+# Plugins Overview
+
+eneoplugin contains plugins in several categories:
+
+## Project Management
+
+| Plugin | Command | What it does |
+|--------|---------|-------------|
+| [Finding](/plugins/finding) | `/finding` | Track findings as GitHub issues on the project board |
+| [Vikunja Kanban](/plugins/vikunja-kanban) | `/vikunja-kanban` | Manage Vikunja Kanban cards |
+
+## Code Quality
+
+| Plugin | Command | What it does |
+|--------|---------|-------------|
+| [Checker](/plugins/checker) | `/checker` | Pyright type checking with ratcheting baseline |
+| [Codex Review](/plugins/codex-review) | `/codex-review` | Multi-persona peer review via OpenAI Codex CLI |
+| [Gemini Review](/plugins/gemini-review) | `/gemini-review` | Architectural cross-verification via Gemini CLI |
+
+## Guidelines
+
+| Plugin | Command | What it does |
+|--------|---------|-------------|
+| [Karpathy Guidelines](/plugins/karpathy-guidelines) | `/karpathy-guidelines` | Behavioral guidelines for cleaner AI-assisted code |
+| [Frontend Design](/plugins/frontend-design) | `/frontend-design` | Production-grade UI design guidance |
+
+## How plugins work
+
+Each plugin can include:
+
+- **Skills** — Slash commands that instruct Claude on what to do (e.g., `/finding list`)
+- **Hooks** — Scripts that run automatically on events (e.g., checker runs after editing Python files)
+- **MCP Servers** — Tool servers that provide custom capabilities (e.g., `typecheck()`)
+- **CLAUDE.md** — Guidelines automatically loaded into every conversation

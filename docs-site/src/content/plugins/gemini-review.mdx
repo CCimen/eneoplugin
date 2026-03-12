@@ -1,0 +1,54 @@
+# Gemini Review
+
+Architectural cross-verification via Google Gemini CLI. Provides an independent third perspective after Codex Review.
+
+## Why
+
+Different AI models have different blind spots. Gemini Review catches things that both Claude and Codex might miss, providing genuine architectural diversity in the review process.
+
+## Prerequisites
+
+```bash
+gemini --version  # Must be installed
+```
+
+## Setup
+
+```bash
+/plugin install gemini-review@eneoplugin
+```
+
+## Usage
+
+```
+/gemini-review
+```
+
+Claude auto-invokes this **after** Codex Review. Can also be triggered manually.
+
+## How it works
+
+Gemini Review operates as the third step in the review pipeline:
+
+```
+Claude (implements) → Codex (primary review) → Gemini (cross-check) → Claude (synthesis)
+```
+
+It uses the same four personas as Codex Review:
+
+| Persona | Focus |
+|---------|-------|
+| **Solution Architect** | Overall architecture and design |
+| **API Consumer** | Endpoint design, contracts, usability |
+| **Security Reviewer** | Auth, permissions, data handling |
+| **Performance Analyst** | Query efficiency, hot paths, scalability |
+
+## Authentication
+
+Supports dual authentication:
+- **Google Account** — For Gemini 3 Pro
+- **API Key** — For Gemini 3.1 Pro Preview
+
+## Focus
+
+The primary value is catching blind spots that Claude and Codex may share. Since different model families are trained differently, Gemini often flags issues from a different angle.

@@ -1,0 +1,100 @@
+# Installation
+
+## Prerequisites
+
+- [Claude Code](https://claude.com/claude-code) CLI installed
+- Git access to the eneo repositories
+- [GitHub CLI](https://cli.github.com/) (`gh`) installed and authenticated
+
+## Add the marketplace
+
+```bash
+/plugin marketplace add CCimen/eneoplugin
+```
+
+This registers the eneoplugin marketplace so Claude Code can discover and install plugins from it.
+
+## Install plugins
+
+Install any plugin by name:
+
+```bash
+/plugin install finding@eneoplugin
+/plugin install checker@eneoplugin
+/plugin install karpathy-guidelines@eneoplugin
+/plugin install frontend-design@eneoplugin
+/plugin install codex-review@eneoplugin
+/plugin install gemini-review@eneoplugin
+/plugin install vikunja-kanban@eneoplugin
+```
+
+After installing, run `/reload-plugins` to activate.
+
+## Plugin-specific setup
+
+Some plugins require additional configuration:
+
+### Finding
+
+The finding plugin needs GitHub project scope on your token:
+
+```bash
+gh auth refresh -s project -h github.com
+```
+
+This opens a browser where you authorize the extra scope. Only needed once. Verify with:
+
+```bash
+gh project view 1 --owner eneo-ai
+```
+
+### Checker
+
+No extra setup needed. Works automatically via stop hooks when editing Python files in `backend/src/intric/`.
+
+To customize behavior, set environment variables:
+
+| Variable | Effect |
+|----------|--------|
+| `TYPECHECK_DISABLE=1` | Completely disable type checking |
+| `TYPECHECK_WARN_ONLY=1` | Show errors but don't block |
+
+### Vikunja Kanban
+
+Requires Vikunja API credentials:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `VIKUNJA_BASE_URL` | Yes | Vikunja server root (no `/api/v1`) |
+| `VIKUNJA_API_TOKEN` | Yes | API token from Vikunja user settings |
+| `VIKUNJA_PROJECT_NAME` | No | Default: `Internal TODO` |
+| `VIKUNJA_VIEW_NAME` | No | Default: `Kanban` |
+
+### Codex Review
+
+Requires OpenAI Codex CLI:
+
+```bash
+codex --version  # Verify installation
+```
+
+### Gemini Review
+
+Requires Google Gemini CLI:
+
+```bash
+gemini --version  # Verify installation
+```
+
+## Updating plugins
+
+Pull the latest from the marketplace and reload:
+
+```bash
+# In your marketplace directory
+cd ~/.claude/plugins/marketplaces/eneoplugin
+git pull
+
+# Then in Claude Code
+/reload-plugins
+```

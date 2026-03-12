@@ -1,0 +1,79 @@
+# Vikunja Kanban
+
+Create and update Vikunja Kanban cards with safe, high-level Swedish progress updates.
+
+## Why
+
+Track task progress directly from Claude Code without switching to the Vikunja UI. Progress updates are written in Swedish at a high level suitable for project leaders, with technical terms kept in English.
+
+## Prerequisites
+
+- Vikunja instance with API access
+- API token from Vikunja user settings
+
+## Setup
+
+```bash
+/plugin install vikunja-kanban@eneoplugin
+```
+
+Set environment variables (e.g., in `~/.zshrc`):
+
+```bash
+export VIKUNJA_BASE_URL="https://your-vikunja-server.com"  # No /api/v1
+export VIKUNJA_API_TOKEN="your-api-token"
+```
+
+Optional:
+
+```bash
+export VIKUNJA_PROJECT_NAME="Internal TODO"  # Default
+export VIKUNJA_VIEW_NAME="Kanban"            # Default
+```
+
+## Commands
+
+### Ensure a task exists
+
+```
+/vikunja-kanban ensure-task --title "Audit logging" --goal "..." --pr-number 84
+```
+
+Creates a task if it doesn't exist, or returns the existing one. Matches by task ID, PR label, title prefix, branch marker, or exact title.
+
+### Progress update
+
+```
+/vikunja-kanban progress-update --pr-number 84 --done 5 --total 10 --summary "Implementerat core logging"
+```
+
+Adds a Swedish high-level status comment and updates `percent_done`.
+
+### Link PR
+
+```
+/vikunja-kanban link-pr --task-id 84 --pr-number 84 --pr-url "https://..."
+```
+
+Adds a PR label and comment. No description edits unless managed by this skill.
+
+### Manage labels
+
+```
+/vikunja-kanban labels --task-id 84 --add "security,audit"
+/vikunja-kanban labels --task-id 84 --remove "legacy"
+```
+
+### Move task
+
+```
+/vikunja-kanban move-task --task-id 84 --to "Under verifiering"
+```
+
+## Safety
+
+The plugin is designed to avoid accidental data loss:
+
+- Never deletes tasks
+- Only edits descriptions for tasks marked as managed (`<!-- vikunja-skill:managed -->`)
+- Defaults to comment-only updates for existing tasks

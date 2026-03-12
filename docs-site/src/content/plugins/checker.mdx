@@ -1,0 +1,69 @@
+# Checker
+
+Automated Pyright type checking for the eneo Python backend with a ratcheting baseline strategy.
+
+## Why
+
+Type errors in Python are easy to introduce and hard to catch without tooling. The checker plugin runs automatically after you edit Python files, catching errors before they reach a PR.
+
+It uses a **ratcheting strategy**: new files get strict checking, existing files only fail on *new* errors compared to a baseline. This prevents regression without requiring you to fix legacy type issues.
+
+## Setup
+
+```bash
+/plugin install checker@eneoplugin
+```
+
+No additional setup needed. The checker runs automatically via stop hooks.
+
+## How it works
+
+### Automatic (stop hook)
+
+When Claude finishes editing Python files in `backend/src/intric/`, the stop hook automatically runs type checking. If errors are found, Claude gets feedback and is prompted to fix them before continuing.
+
+### Manual
+
+```
+/checker
+```
+
+Runs the type checking script manually. Useful for verifying type safety before committing.
+
+## Interpreting output
+
+### Success
+
+```
+No Python files to check.
+```
+
+### Errors
+
+Errors show file, line, column, severity, rule, and message:
+
+```
+src/intric/files/file_service.py:42:5: error[reportOptionalMemberAccess]: "id" is not a known attribute of "None"
+```
+
+## Common errors and fixes
+
+| Error | Fix |
+|-------|-----|
+| `reportOptionalMemberAccess` | Add null check: `assert x is not None` |
+| `reportAttributeAccessIssue` | Check method/attribute spelling |
+| `reportArgumentType` | Fix function argument types |
+| `reportUndefinedVariable` | Import missing name or fix typo |
+
+## Configuration
+
+| Variable | Effect |
+|----------|--------|
+| `TYPECHECK_DISABLE=1` | Completely disable type checking |
+| `TYPECHECK_WARN_ONLY=1` | Show errors but don't block |
+
+## Components
+
+- **Stop hook** — Runs after Python file edits
+- **MCP server** — Provides `typecheck()` tool
+- **CLAUDE.md** — Ratcheting strategy guidelines

@@ -1,0 +1,35 @@
+# eneoplugin
+
+A Claude Code plugin marketplace with AI team tools, guidelines, and integrations for Eneo developers.
+
+## What is this?
+
+**eneoplugin** is a shared collection of [Claude Code](https://claude.com/claude-code) plugins built by and for the Eneo AI team. Each plugin adds specialized capabilities — from type checking and code review to project management and design guidelines.
+
+Plugins are installed via Claude Code's marketplace system and activated with slash commands.
+
+## Quick start
+
+```bash
+# 1. Add the marketplace
+/plugin marketplace add CCimen/eneoplugin
+
+# 2. Install the plugins you need
+/plugin install finding@eneoplugin
+/plugin install checker@eneoplugin
+/plugin install karpathy-guidelines@eneoplugin
+```
+
+See [Getting Started](/setup) for detailed setup instructions.
+
+## Available plugins
+
+| Plugin | Command | Description |
+|--------|---------|-------------|
+| [Finding](/plugins/finding) | `/finding` | Create, list, and grab GitHub project issues |
+| [Checker](/plugins/checker) | `/checker` | Pyright type checking with ratcheting baseline |
+| [Karpathy Guidelines](/plugins/karpathy-guidelines) | `/karpathy-guidelines` | Behavioral guidelines for cleaner code |
+| [Frontend Design](/plugins/frontend-design) | `/frontend-design` | Production-grade UI design guidance |
+| [Codex Review](/plugins/codex-review) | `/codex-review` | Multi-persona peer review via OpenAI Codex |
+| [Gemini Review](/plugins/gemini-review) | `/gemini-review` | Architectural cross-verification via Gemini |
+| [Vikunja Kanban](/plugins/vikunja-kanban) | `/vikunja-kanban` | Vikunja Kanban card management |
