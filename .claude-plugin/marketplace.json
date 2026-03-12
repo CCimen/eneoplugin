@@ -33,6 +33,11 @@
       "name": "gemini-review",
       "source": "./plugins/gemini-review",
       "description": "Architectural cross-verification via Google Gemini CLI — validates Claude + Codex conclusions"
+    },
+    {
+      "name": "github-findings",
+      "source": "./plugins/github-findings",
+      "description": "Create, list, and grab GitHub issues from the eneo project board"
     }
   ]
 }
