@@ -4,6 +4,7 @@
       "command": "uv",
       "args": [
         "run",
+        "--no-sync",
         "--with",
         "fastmcp<3",
         "python",

@@ -228,7 +228,7 @@ def run_pyright(
     config: str | None = None,
 ) -> dict | None:
     """Run pyright on files and return JSON output."""
-    cmd = ["uv", "run", "pyright", "--outputjson"]
+    cmd = ["uv", "run", "--no-sync", "pyright", "--outputjson"]
     if config:
         cmd.extend(["--project", config])
     cmd.extend(files)

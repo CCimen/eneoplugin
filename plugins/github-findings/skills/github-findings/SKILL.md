@@ -1,6 +1,6 @@
 ---
-name: finding
-description: "Manage GitHub project findings: create issues, list open items, or pick up work. Usage: `/finding` (create), `/finding list` (show open), `/finding grab <number>` (start working on an issue)."
+name: github-findings
+description: "Manage GitHub project findings: create issues, list open items, or pick up work. Usage: `/github-findings` (create), `/github-findings list` (show open), `/github-findings grab <number>` (start working on an issue)."
 ---
 
 # Finding — GitHub Project Issue Manager
