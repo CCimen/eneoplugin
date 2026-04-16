@@ -1,81 +1,44 @@
 # Contributing
 
-Want to add a new plugin or improve an existing one? Here's how.
+## Scope
 
-## Plugin structure
+This repo now has four active plugins:
 
-Each plugin lives in `plugins/<name>/` and follows this structure:
+- `eneo-core`
+- `eneo-standards`
+- `eneo-findings`
+- `eneo-review`
 
-```
-plugins/my-plugin/
-├── .claude-plugin/
-│   └── plugin.json          # Plugin metadata (name, description, version)
-├── skills/
-│   └── my-plugin/
-│       └── SKILL.md          # Skill definition (slash command)
-├── hooks/                    # Optional: hook scripts
-│   └── hooks.json
-├── mcp/                      # Optional: MCP server
-│   └── server.py
-└── CLAUDE.md                 # Optional: auto-loaded guidelines
-```
+If you add or change functionality, keep it within one of those surfaces unless there is a strong reason to introduce a new plugin.
 
-### Key rules
+## Versioning
 
-- The **skill folder name** must match the **plugin name** in `plugin.json` for the slash command to resolve correctly
-- The `name` field in `SKILL.md` frontmatter must also match
-- Bump the `version` in `plugin.json` when making changes to bust the cache
+For this marketplace, plugin update detection is managed in `.claude-plugin/marketplace.json` because the plugins are listed as relative-path entries there. Bump the marketplace entry version when you want installed users to receive an update.
 
-### plugin.json
+## Local development
 
-```json
-{
-  "name": "my-plugin",
-  "description": "Short description of what the plugin does",
-  "version": "1.0.0"
-}
+Use `--plugin-dir` first:
+
+```bash
+claude \
+  --plugin-dir ./plugins/eneo-core \
+  --plugin-dir ./plugins/eneo-standards \
+  --plugin-dir ./plugins/eneo-findings \
+  --plugin-dir ./plugins/eneo-review
 ```
 
-### SKILL.md
+Then test:
 
-```markdown
----
-name: my-plugin
-description: When and how to use this plugin. This text appears in the skills list.
----
-
-# My Plugin
-
-Instructions for Claude on how to execute the skill...
+```bash
+/eneo-core:eneo-doctor
 ```
 
-## Registering the plugin
+## Keep the common path light
 
-Add an entry to `.claude-plugin/marketplace.json`:
+The harness is designed to keep routine work simple. Prefer:
 
-```json
-{
-  "name": "my-plugin",
-  "source": "./plugins/my-plugin",
-  "description": "Short description"
-}
-```
+- bounded commands
+- deterministic helpers
+- clear docs
 
-## Development workflow
-
-1. Fork the repo or create a branch
-2. Create your plugin directory and files
-3. Add the entry to `marketplace.json`
-4. Test locally:
-   ```bash
-   /reload-plugins
-   /my-plugin  # Test your skill
-   ```
-5. Submit a PR
-
-## Tips
-
-- **SKILL.md is a prompt**, not code. Write clear instructions for Claude to follow.
-- Use `disable-model-invocation: true` in SKILL.md frontmatter if the skill only runs bash commands (no AI reasoning needed).
-- Keep skills focused — one plugin should do one thing well.
-- Reference the [checker](/plugins/checker) and [finding](/plugins/finding) plugins as examples of different plugin types.
+Avoid adding new coordination layers or required external tooling unless the gain is obvious.

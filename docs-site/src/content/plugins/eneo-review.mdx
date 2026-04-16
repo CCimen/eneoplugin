@@ -1,0 +1,19 @@
+# eneo-review
+
+The review plugin holds the optional external-review agents.
+
+## Agents
+
+- `codex-reviewer`
+- `gemini-reviewer`
+
+## When it runs
+
+It is trigger-gated from `/eneo-verify` for risky changes such as:
+
+- `audit:schema`
+- `tenancy:cross`
+- `authz`
+- very large changes
+
+This is intentionally not an always-on review layer. Low-risk work should pass through the normal harness checks without paying extra latency or context cost.

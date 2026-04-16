@@ -1,34 +1,19 @@
 # Plugins Overview
 
-eneoplugin contains plugins in several categories:
+The marketplace now ships four plugins:
 
-## Project Management
+| Plugin | Purpose |
+|--------|---------|
+| [eneo-core](/plugins/eneo-core) | Main `/eneo-*` workflow, subagents, and domain skills |
+| [eneo-standards](/plugins/eneo-standards) | Hooks, validators, helper binaries, and status line |
+| [eneo-findings](/plugins/eneo-findings) | Findings workflow and learning extraction |
+| [eneo-review](/plugins/eneo-review) | Trigger-gated external review agents |
 
-| Plugin | Command | What it does |
-|--------|---------|-------------|
-| [Finding](/plugins/finding) | `/finding` | Track findings as GitHub issues on the project board |
-| [Vikunja Kanban](/plugins/vikunja-kanban) | `/vikunja-kanban` | Manage Vikunja Kanban cards |
+## How they fit together
 
-## Code Quality
+- `eneo-core` is the command surface you use most often
+- `eneo-standards` is the runtime safety layer
+- `eneo-findings` handles backlog capture outside the current task
+- `eneo-review` stays quiet until `/eneo-verify` decides a change is risky enough to justify extra review
 
-| Plugin | Command | What it does |
-|--------|---------|-------------|
-| [Checker](/plugins/checker) | `/checker` | Pyright type checking with ratcheting baseline |
-| [Codex Review](/plugins/codex-review) | `/codex-review` | Multi-persona peer review via OpenAI Codex CLI |
-| [Gemini Review](/plugins/gemini-review) | `/gemini-review` | Architectural cross-verification via Gemini CLI |
-
-## Guidelines
-
-| Plugin | Command | What it does |
-|--------|---------|-------------|
-| [Karpathy Guidelines](/plugins/karpathy-guidelines) | `/karpathy-guidelines` | Behavioral guidelines for cleaner AI-assisted code |
-| [Frontend Design](/plugins/frontend-design) | `/frontend-design` | Production-grade UI design guidance |
-
-## How plugins work
-
-Each plugin can include:
-
-- **Skills** — Slash commands that instruct Claude on what to do (e.g., `/finding list`)
-- **Hooks** — Scripts that run automatically on events (e.g., checker runs after editing Python files)
-- **MCP Servers** — Tool servers that provide custom capabilities (e.g., `typecheck()`)
-- **CLAUDE.md** — Guidelines automatically loaded into every conversation
+This is intentional. The harness is designed to keep the common path lightweight and only pay extra complexity when risk or scope actually justify it.
