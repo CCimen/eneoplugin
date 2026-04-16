@@ -1,5 +1,0 @@
-{
-  "name": "checker",
-  "description": "Pyright type checking for eneo Python backend with MCP tool and Stop hook",
-  "version": "1.2.0"
-}

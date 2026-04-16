@@ -1,35 +1,69 @@
-# eneoplugin
+# eneo-agent-harness
 
-A Claude Code plugin marketplace with AI team tools, guidelines, and integrations for Eneo developers.
+A Claude Code marketplace for the Eneo workflow.
 
-## What is this?
+## TL;DR
 
-**eneoplugin** is a shared collection of [Claude Code](https://claude.com/claude-code) plugins built by and for the Eneo AI team. Each plugin adds specialized capabilities — from type checking and code review to project management and design guidelines.
+- install `eneo-core` and `eneo-standards`
+- start with `/eneo-core:eneo-new "<change>"`
+- run `/eneo-core:eneo-doctor` when the environment feels wrong
+- let `eneo-standards` handle TDD, audit, tenancy, and ratchet enforcement
 
-Plugins are installed via Claude Code's marketplace system and activated with slash commands.
+## What developers get
+
+- one shared way to start work
+- a lighter common path for small changes
+- stronger guardrails for risky or cross-cutting work
+- deterministic diagnostics instead of ad hoc shell spelunking
+- findings capture without mixing backlog work into the current task
+
+## Marketplace structure
+
+| Plugin | Purpose |
+|--------|---------|
+| [eneo-core](/plugins/eneo-core) | Main `/eneo-*` workflow |
+| [eneo-standards](/plugins/eneo-standards) | Hooks, validators, helper commands, status line |
+| [eneo-findings](/plugins/eneo-findings) | Findings workflow and learning extraction |
+| [eneo-review](/plugins/eneo-review) | Trigger-gated external review agents |
 
 ## Quick start
 
 ```bash
-# 1. Add the marketplace
 /plugin marketplace add CCimen/eneoplugin
-
-# 2. Install the plugins you need
-/plugin install finding@eneoplugin
-/plugin install checker@eneoplugin
-/plugin install karpathy-guidelines@eneoplugin
+/plugin install eneo-core@eneoplugin
+/plugin install eneo-standards@eneoplugin
+/plugin install eneo-findings@eneoplugin
+/plugin install eneo-review@eneoplugin
+/reload-plugins
 ```
 
-See [Getting Started](/setup) for detailed setup instructions.
+Then run:
 
-## Available plugins
+```bash
+/eneo-core:eneo-doctor
+```
 
-| Plugin | Command | Description |
-|--------|---------|-------------|
-| [Finding](/plugins/finding) | `/finding` | Create, list, and grab GitHub project issues |
-| [Checker](/plugins/checker) | `/checker` | Pyright type checking with ratcheting baseline |
-| [Karpathy Guidelines](/plugins/karpathy-guidelines) | `/karpathy-guidelines` | Behavioral guidelines for cleaner code |
-| [Frontend Design](/plugins/frontend-design) | `/frontend-design` | Production-grade UI design guidance |
-| [Codex Review](/plugins/codex-review) | `/codex-review` | Multi-persona peer review via OpenAI Codex |
-| [Gemini Review](/plugins/gemini-review) | `/gemini-review` | Architectural cross-verification via Gemini |
-| [Vikunja Kanban](/plugins/vikunja-kanban) | `/vikunja-kanban` | Vikunja Kanban card management |
+Then start work with:
+
+```bash
+/eneo-core:eneo-new "<what you want to change>"
+```
+
+## Read next
+
+- [Getting Started](/setup)
+- [Workflow](/workflow)
+- [How It Works](/how-it-works)
+- [Plugins](/plugins)
+
+## Why this exists
+
+The harness gives Eneo developers one consistent flow for:
+
+- triage
+- phase execution
+- review gates
+- findings capture
+- milestone closeout
+
+It is designed to keep the common path light and only add more process when the work is genuinely risky or large.

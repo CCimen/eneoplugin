@@ -9,6 +9,14 @@ const meta: MetaRecord = {
     title: 'Getting Started',
     type: 'page',
   },
+  workflow: {
+    title: 'Workflow',
+    type: 'page',
+  },
+  'how-it-works': {
+    title: 'How It Works',
+    type: 'page',
+  },
   plugins: {
     title: 'Plugins',
     type: 'page',
