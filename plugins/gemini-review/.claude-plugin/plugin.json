@@ -1,5 +1,0 @@
-{
-  "name": "gemini-review",
-  "description": "Architectural cross-verification via Google Gemini CLI — validates Claude + Codex conclusions with a fresh perspective",
-  "version": "1.0.0"
-}

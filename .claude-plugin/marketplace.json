@@ -6,58 +6,27 @@
   "plugins": [
     {
       "name": "eneo-core",
+      "version": "0.2.0",
       "source": "./plugins/eneo-core",
-      "description": "Eneo slash commands (/gsd-*, /eneo-env-check), subagents, and skills (PRD/plan/issues, FastAPI, SvelteKit, audit-log, frontend-design)"
+      "description": "Core /eneo-* workflow commands, subagents, and implementation skills."
     },
     {
       "name": "eneo-standards",
+      "version": "0.2.0",
       "source": "./plugins/eneo-standards",
-      "description": "Hook-enforced standards: TDD phase gate, bash firewall, wave barrier, ratchets, validators, pyright typecheck"
+      "description": "Hooks, validators, helper binaries, and status line for the Eneo harness."
     },
     {
       "name": "eneo-review",
+      "version": "0.2.0",
       "source": "./plugins/eneo-review",
-      "description": "Optional adversarial review (Codex + Gemini) — trigger-gated for Deep lane + risky paths only"
+      "description": "Optional external review agents for risky changes."
     },
     {
       "name": "eneo-findings",
+      "version": "0.2.0",
       "source": "./plugins/eneo-findings",
-      "description": "GitHub Projects findings tracker + /finding-teach session learning extractor"
-    },
-    {
-      "name": "karpathy-guidelines",
-      "source": "./plugins/karpathy-guidelines",
-      "description": "[LEGACY — to be removed in Phase 8] Behavioral guidelines; principles now live in eneo-context.md paired with enforcement hooks"
-    },
-    {
-      "name": "frontend-design",
-      "source": "./plugins/frontend-design",
-      "description": "[LEGACY — merged into eneo-core in Phase 8] Create distinctive, production-grade frontend interfaces"
-    },
-    {
-      "name": "checker",
-      "source": "./plugins/checker",
-      "description": "[LEGACY — absorbed into eneo-standards in Phase 8] Automated Pyright type checking for eneo Python backend"
-    },
-    {
-      "name": "vikunja-kanban",
-      "source": "./plugins/vikunja-kanban",
-      "description": "[LEGACY — to be removed in Phase 8] Vikunja Kanban card management; replaced by GitHub Projects"
-    },
-    {
-      "name": "codex-review",
-      "source": "./plugins/codex-review",
-      "description": "[LEGACY — absorbed into eneo-review in Phase 8] Multi-persona peer review via OpenAI Codex CLI"
-    },
-    {
-      "name": "gemini-review",
-      "source": "./plugins/gemini-review",
-      "description": "[LEGACY — absorbed into eneo-review in Phase 8] Architectural cross-verification via Google Gemini CLI"
-    },
-    {
-      "name": "finding",
-      "source": "./plugins/finding",
-      "description": "[LEGACY — absorbed into eneo-findings in Phase 8] Create, list, and grab GitHub issues from the eneo project board"
+      "description": "GitHub findings workflow and learning extraction."
     }
   ]
 }
