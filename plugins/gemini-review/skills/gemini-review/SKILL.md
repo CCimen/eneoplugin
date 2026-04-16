@@ -7,7 +7,11 @@ description: >
   disagree. Gemini receives the original plan/code, Codex's feedback, and Claude's
   synthesis, then provides fresh verification through four persona lenses. Excels at
   catching architectural blind spots that two reviewers may have shared.
-allowed-tools: "Bash(gemini:*),Bash(git diff:*),Bash(git status:*),Read"
+allowed-tools:
+  - Bash(gemini *)
+  - Bash(git diff *)
+  - Bash(git status *)
+  - Read
 ---
 
 # Gemini Review — Architectural Cross-Verification for Eneo

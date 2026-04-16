@@ -1,0 +1,9 @@
+{
+  "name": "eneo-standards",
+  "description": "Hook-enforced standards for Eneo: TDD phase gate (RED/GREEN/REFACTOR), bash firewall against test-edit bypass, wave barrier for parallel subagent coordination, coverage + mutation ratchets, trivial-assertion detector, PR metadata validator, protected-file gates, and pyright typecheck (ported from the legacy checker plugin).",
+  "version": "0.1.0",
+  "author": {
+    "name": "Eneo AI Team"
+  },
+  "license": "MIT"
+}

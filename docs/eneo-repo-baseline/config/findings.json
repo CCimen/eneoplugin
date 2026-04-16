@@ -1,0 +1,19 @@
+{
+  "_comment": "Findings plugin configuration. Municipalities copy this into .claude/config/findings.json in their Eneo clone and override the values below. The finding skill reads this file on every invocation; do not hardcode any value from here into the skill itself.",
+
+  "github_repo": "eneo-ai/eneo",
+  "project_owner": "eneo-ai",
+  "project_number": 1,
+
+  "project_id": "PVT_kwDODE-ils4BRhtq",
+  "status_field_id": "PVTSSF_lADODE-ils4BRhtqzg_VEKg",
+  "status_options": {
+    "todo": "f75ad846",
+    "in_progress": "47fc9ee4",
+    "done": "98236657"
+  },
+
+  "labels": ["bug", "enhancement", "documentation", "question"],
+  "language": "sv",
+  "board_name": "Eneo Findings"
+}

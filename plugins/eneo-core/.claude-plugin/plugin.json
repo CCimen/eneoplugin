@@ -1,0 +1,9 @@
+{
+  "name": "eneo-core",
+  "description": "Eneo slash commands (/gsd-*, /eneo-env-check, /finding-teach), subagents (tdd-pair, domain specialists, reviewers, learning-extractor, autoreason-judge), and skills (PRD/plan/issues, FastAPI/Pydantic/SvelteKit/audit-log, frontend-design).",
+  "version": "0.1.0",
+  "author": {
+    "name": "Eneo AI Team"
+  },
+  "license": "MIT"
+}

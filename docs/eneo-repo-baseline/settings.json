@@ -1,0 +1,62 @@
+{
+  "extraKnownMarketplaces": {
+    "eneo-agent-harness": {
+      "type": "github",
+      "repo": "eneo-ai/eneo-agent-harness"
+    }
+  },
+  "// statusLine": "Uncomment to opt into the harness two-line status line:",
+  "// statusLine_example": {
+    "type": "command",
+    "command": "${CLAUDE_PLUGIN_ROOT}/statusline/eneo-statusline.sh",
+    "refreshInterval": 2
+  },
+  "hooks": {
+    "_note": "Most hook registrations come from the eneo-standards plugin's hooks/hooks.json. The entries below are Eneo-repo-specific additions (e.g., extra SessionStart loaders) that supplement — not replace — the plugin-registered hooks.",
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-start-merge-rules.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(uv run pyright *)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run mutmut *)",
+      "Bash(bun run check *)",
+      "Bash(bun run test *)",
+      "Bash(jq *)",
+      "Bash(git diff *)",
+      "Bash(git status)",
+      "Bash(git log *)",
+      "Bash(gh issue *)",
+      "Bash(gh pr view *)",
+      "Bash(docker exec * uv run pyright *)",
+      "Bash(docker exec * uv run pytest *)",
+      "Bash(docker exec * uv run mutmut *)",
+      "Bash(docker exec * bun run check *)",
+      "Bash(docker exec * bun run test *)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Bash(rm -rf *)",
+      "Bash(git push --force *)"
+    ],
+    "ask": [
+      "Bash(git push *)",
+      "Bash(alembic downgrade *)",
+      "Bash(gh pr merge *)",
+      "Bash(gh pr create *)",
+      "Bash(gh issue create *)"
+    ]
+  }
+}

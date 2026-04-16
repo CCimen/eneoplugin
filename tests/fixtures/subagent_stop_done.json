@@ -1,0 +1,6 @@
+{
+  "agent_id": "agent-done",
+  "agent_type": "Explore",
+  "last_assistant_message": "DONE|/tmp/artifact.md",
+  "stop_hook_active": false
+}

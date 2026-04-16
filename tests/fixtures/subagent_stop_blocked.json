@@ -1,0 +1,6 @@
+{
+  "agent_id": "agent-blocked",
+  "agent_type": "Explore",
+  "last_assistant_message": "BLOCKED|missing acceptance criteria",
+  "stop_hook_active": false
+}

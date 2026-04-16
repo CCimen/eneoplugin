@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 5 ]]; then
+  echo "usage: eneo-task-init <slug> <lane> <bracket> <tenancy_impact> <audit_impact>" >&2
+  exit 2
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../hooks/lib/env.sh"
+source "$SCRIPT_DIR/../hooks/lib/state.sh"
+
+eneo_task_init "$1" "$2" "$3" "$4" "$5"
