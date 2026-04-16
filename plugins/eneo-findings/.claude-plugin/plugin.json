@@ -1,7 +1,6 @@
 {
   "name": "eneo-findings",
   "description": "GitHub Projects findings tracker: /finding to create, list, or grab issues on the eneo project board, plus /finding-teach which extracts session learnings into candidate skills. Reads configurable board IDs and labels from .claude/config/findings.json so municipalities can override without forking the plugin.",
-  "version": "0.1.0",
   "author": {
     "name": "Eneo AI Team"
   },

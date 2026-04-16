@@ -1,0 +1,42 @@
+# How It Works
+
+## Under the hood
+
+The harness is split into four plugins on purpose:
+
+- `eneo-core` owns the workflow commands and subagents
+- `eneo-standards` owns enforcement, helper binaries, and the status line
+- `eneo-findings` owns backlog capture outside the current task
+- `eneo-review` stays mostly quiet until `/eneo-verify` decides a change is risky enough to justify external review
+
+## State model
+
+The core runtime state is small:
+
+- `.claude/state/current-task.json` for live task flow
+- `.claude/phases/` for authored execution artifacts
+- `.claude/recaps/` for milestone closeout
+
+This is why the harness does **not** add a third required task system like beads/`br` to the core flow. The workflow already has a state layer, an artifact layer, and a shared backlog layer.
+
+## Inspirations
+
+The harness is not trying to invent a workflow from scratch. It borrows the useful parts and keeps them coherent:
+
+- Anthropic plugin, hook, and subagent primitives
+- tracer-bullet and vertical-slice planning discipline
+- wave-style execution for multi-agent phase work
+- strict runtime checks for TDD, tenancy, audit, and quality gates
+
+The result should feel practical rather than ceremonial.
+
+## What this means for developers
+
+In practice, the harness should improve the workflow by making the right thing easier:
+
+- `/eneo-core:eneo-doctor` gives one deterministic diagnostic path
+- `/eneo-core:eneo-new` chooses the lightest reasonable lane
+- hooks catch unsafe or low-signal behavior early
+- `/eneo-core:eneo-verify` centralizes the meaningful quality gates
+
+The goal is not “more process.” The goal is less ambiguity, fewer repeated mistakes, and a clearer next step.
