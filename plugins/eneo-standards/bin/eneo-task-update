@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+  echo "usage: eneo-task-update '<jq-expression>' [arg-name arg-value]..." >&2
+  exit 2
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../hooks/lib/env.sh"
+source "$SCRIPT_DIR/../hooks/lib/state.sh"
+
+EXPR="$1"
+shift
+eneo_task_update "$EXPR" "$@"

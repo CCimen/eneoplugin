@@ -7,7 +7,11 @@ description: >
   endpoints or auth/permissions, or needing a second opinion on any non-trivial work.
   Acts as a constant "big brother" reviewer ensuring code quality, maintainability,
   security, and performance across all Eneo development.
-allowed-tools: "Bash(codex exec:*),Bash(git diff:*),Bash(git status:*),Read"
+allowed-tools:
+  - Bash(codex exec *)
+  - Bash(git diff *)
+  - Bash(git status *)
+  - Read
 ---
 
 # Codex Review — Always-On Peer Review for Eneo

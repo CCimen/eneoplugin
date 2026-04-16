@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+  echo "usage: eneo-phase-set RED|GREEN|REFACTOR|FREE" >&2
+  exit 2
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../hooks/lib/env.sh"
+source "$SCRIPT_DIR/../hooks/lib/state.sh"
+
+eneo_phase_set "$1"

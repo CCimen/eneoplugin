@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../hooks/lib/env.sh"
+source "$SCRIPT_DIR/../hooks/lib/state.sh"
+
+ROOT=$(eneo_repo_root)
+MODE=$(detect_env)
+CONTAINER=$(eneo_container_name 2>/dev/null || true)
+
+row() {
+  printf '%s\t%s\t%s\n' "$1" "$2" "$3"
+}
+
+version_ge() {
+  local actual="$1"
+  local minimum="$2"
+  [[ "$(printf '%s\n%s\n' "$minimum" "$actual" | sort -V | head -1)" == "$minimum" ]]
+}
+
+get_pyright_floor() {
+  local pyproject="$ROOT/backend/pyproject.toml"
+  [[ -f "$pyproject" ]] || return 0
+  sed -n 's/.*"pyright>=\([^,"]*\).*/\1/p' "$pyproject" | head -1
+}
+
+DOCTOR_ROWS=()
+add_row() {
+  DOCTOR_ROWS+=("$(row "$1" "$2" "$3")")
+}
+
+if [[ "$MODE" == "host-with-docker" && -n "$CONTAINER" ]]; then
+  add_row "✓" "Mode: host-with-docker (container: $CONTAINER)" "—"
+elif [[ "$MODE" == "in-container" ]]; then
+  add_row "✓" "Mode: in-container" "—"
+elif [[ "$MODE" == "native" ]]; then
+  add_row "✓" "Mode: native" "—"
+else
+  add_row "✗" "Mode: $MODE" "Set ENEO_DEVCONTAINER_MODE=host-with-docker or start the devcontainer"
+fi
+
+if command -v eneo-env-report >/dev/null 2>&1; then
+  add_row "✓" "Plugin loaded from --plugin-dir (dev mode)" "—"
+else
+  INSTALLED=$(claude plugin list 2>/dev/null || true)
+  for plugin in eneo-core eneo-standards eneo-findings; do
+    if echo "$INSTALLED" | grep -q "$plugin"; then
+      add_row "✓" "$plugin installed" "—"
+    else
+      add_row "✗" "$plugin not installed" "/plugin install $plugin@eneo-agent-harness"
+    fi
+  done
+fi
+
+if UV_VERSION=$(eneo_exec "backend" uv --version 2>&1); then
+  add_row "✓" "uv: $UV_VERSION" "—"
+else
+  add_row "✗" "uv missing in selected mode" "export ENEO_DEVCONTAINER_MODE=host-with-docker or install uv"
+fi
+
+if PYRIGHT_VERSION=$(eneo_exec "backend" uv run pyright --version 2>&1); then
+  FLOOR=$(get_pyright_floor)
+  ACTUAL=$(echo "$PYRIGHT_VERSION" | awk '{print $NF}' | head -1)
+  if [[ -n "$FLOOR" && -n "$ACTUAL" ]] && version_ge "$ACTUAL" "$FLOOR"; then
+    add_row "✓" "pyright $ACTUAL ≥ floor $FLOOR" "—"
+  elif [[ -n "$FLOOR" ]]; then
+    add_row "✗" "pyright $ACTUAL < floor $FLOOR" "cd backend && uv lock --upgrade-package pyright && uv sync"
+  else
+    add_row "✓" "pyright: $PYRIGHT_VERSION" "—"
+  fi
+else
+  add_row "✗" "pyright missing in selected mode" "cd backend && uv add --dev pyright"
+fi
+
+if PYTEST_VERSION=$(eneo_exec "backend" uv run pytest --version 2>&1); then
+  add_row "✓" "pytest: $(echo "$PYTEST_VERSION" | head -1)" "—"
+else
+  add_row "✗" "pytest missing in selected mode" "cd backend && uv sync --group dev"
+fi
+
+if BUN_VERSION=$(bun --version 2>/dev/null); then
+  add_row "✓" "bun: $BUN_VERSION (host)" "—"
+elif BUN_VERSION=$(eneo_exec "frontend/apps/web" bun --version 2>&1); then
+  add_row "✓" "bun: $BUN_VERSION" "—"
+else
+  add_row "✗" "bun missing" "curl -fsSL https://bun.sh/install | bash"
+fi
+
+TASK_FILE=$(eneo_task_file)
+if [[ -f "$TASK_FILE" ]]; then
+  SLUG=$(jq -r '.slug // empty' "$TASK_FILE" 2>/dev/null || echo "")
+  LANE=$(jq -r '.lane // empty' "$TASK_FILE" 2>/dev/null || echo "")
+  TDD_PHASE=$(jq -r '.tdd_phase // empty' "$TASK_FILE" 2>/dev/null || echo "")
+  MIRROR=$(cat "$(eneo_phase_file)" 2>/dev/null || echo "FREE")
+  case "$LANE" in
+    fast)
+      add_row "✓" "current-task.json present (fast lane)" "—"
+      ;;
+    standard)
+      if [[ -n "$SLUG" && -d "$ROOT/.claude/specs/$SLUG" ]]; then
+        add_row "✓" "current-task.json present (standard lane)" "—"
+      else
+        add_row "✗" "stale state for standard lane slug $SLUG" "rm .claude/state/current-task.json"
+      fi
+      ;;
+    deep)
+      if [[ -n "$SLUG" && ( -f "$ROOT/.claude/plans/$SLUG.md" || -f "$ROOT/.claude/prds/$SLUG.md" ) ]]; then
+        add_row "✓" "current-task.json present (deep lane)" "—"
+      else
+        add_row "✗" "stale state for deep lane slug $SLUG" "rm .claude/state/current-task.json"
+      fi
+      ;;
+    *)
+      if [[ -n "$SLUG" ]]; then
+        add_row "✗" "state has unknown lane for slug $SLUG" "rm .claude/state/current-task.json"
+      else
+        add_row "✓" "current-task.json present" "—"
+      fi
+      ;;
+  esac
+  if [[ -n "$TDD_PHASE" && "$TDD_PHASE" != "$MIRROR" ]]; then
+    add_row "✗" "phase mirror drift ($MIRROR vs $TDD_PHASE)" "eneo-phase-set $TDD_PHASE"
+  fi
+else
+  add_row "✓" "No current-task.json (no stale state)" "—"
+fi
+
+if [[ -d "$ROOT/.claude/ratchet" ]]; then
+  if [[ -f "$ROOT/.claude/ratchet/coverage.json" || -f "$ROOT/.claude/ratchet/mutation.json" ]]; then
+    add_row "✓" "Ratchet baseline present" "—"
+  else
+    add_row "✗" ".claude/ratchet exists without baseline files" "eneo-ratchet-check --init"
+  fi
+else
+  add_row "✓" "No .claude/ratchet dir" "—"
+fi
+
+printf 'STATUS\tCHECK\tFIX\n'
+for entry in "${DOCTOR_ROWS[@]}"; do
+  printf '%s\n' "$entry"
+done

@@ -1,0 +1,9 @@
+{
+  "name": "eneo-review",
+  "description": "Optional adversarial review: Codex + Gemini reviewer subagents. Trigger-gated — only invoked by /gsd-verify-work when change is tagged audit:schema, tenancy:cross, authz, or LOC > 800. Output compatible with the A/B/AB autoreason tournament.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Eneo AI Team"
+  },
+  "license": "MIT"
+}
