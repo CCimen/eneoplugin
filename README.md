@@ -6,6 +6,7 @@ Claude Code marketplace for the Eneo workflow.
 
 - install `eneo-core` and `eneo-standards`
 - start work with `/eneo-core:eneo-new "<change>"`
+- commit through `/eneo-core:eneo-commit "<message>"`
 - run `/eneo-core:eneo-doctor` when the environment feels wrong
 - let `eneo-standards` enforce TDD, audit, tenancy, and quality gates
 
@@ -44,11 +45,29 @@ Then run:
 
 ## Day-to-day flow
 
-- **Fast:** `/eneo-new` → edit → `/eneo-verify` → `/eneo-ship`
-- **Standard:** `/eneo-new` → `/eneo-start` → `/eneo-verify` → `/eneo-ship`
-- **Deep:** `/eneo-new` → `/eneo-discuss` → `/eneo-plan` → `/eneo-start` → `/eneo-verify` → `/eneo-ship` → `/eneo-recap`
+- **Fast:** `/eneo-new` → edit → `/eneo-verify` → `/eneo-commit` → `/eneo-ship`
+- **Standard:** `/eneo-new` → `/eneo-start` → `/eneo-verify` → `/eneo-commit` → `/eneo-ship`
+- **Deep:** `/eneo-new` → `/eneo-discuss` → `/eneo-plan` → `/eneo-start` → `/eneo-verify` → `/eneo-commit` → `/eneo-ship` → `/eneo-recap`
 
 Command discovery note: `/help` mostly shows built-ins. For plugin commands, type `/` and filter by `eneo`, or inspect the plugin in `/plugin`.
+
+## What `/eneo-commit` does
+
+`/eneo-commit` is the commit-time review step between technical verification and PR creation.
+
+It keeps the workflow split clean:
+
+- `/eneo-verify` proves the change works
+- `/eneo-commit` reviews the staged commit
+- `/eneo-ship` opens the PR with the required metadata and evidence
+
+Under the hood, `/eneo-commit` combines:
+
+- deterministic staged-file and commit-message checks
+- a conditional `security-reviewer` pass only on risky diffs
+- normal `git commit`, so the repo's own hooks still remain the source of truth
+
+This improves AI-assisted workflows in particular because it separates deterministic enforcement from advisory review instead of mixing both concerns into a single late-stage step.
 
 ## Under the hood
 

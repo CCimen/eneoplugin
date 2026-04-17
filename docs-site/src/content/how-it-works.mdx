@@ -38,5 +38,27 @@ In practice, the harness should improve the workflow by making the right thing e
 - `/eneo-core:eneo-new` chooses the lightest reasonable lane
 - hooks catch unsafe or low-signal behavior early
 - `/eneo-core:eneo-verify` centralizes the meaningful quality gates
+- `/eneo-core:eneo-commit` reviews the staged commit before PR creation
 
 The goal is not “more process.” The goal is less ambiguity, fewer repeated mistakes, and a clearer next step.
+
+## Why `/eneo-commit` exists
+
+The harness already had a strong verification step and a strong ship step, but there was still a gap between:
+
+- “the code is technically ready”
+- “this is a good commit to land”
+
+`/eneo-commit` fills that gap.
+
+It is intentionally not just another hard blocker. Instead it combines:
+
+- deterministic checks for staged-file hygiene and commit-message quality
+- conditional risk review for security-sensitive diffs
+- the repository's own normal `git commit` path and hooks
+
+That split matters for both quality and automation:
+
+- deterministic checks stay deterministic
+- advisory review stays advisory
+- PR creation stays a later evidence-backed step

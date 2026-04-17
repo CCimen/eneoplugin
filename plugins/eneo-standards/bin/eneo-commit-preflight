@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+"""Deterministic staged-commit preflight for the Eneo harness."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+PREFERRED_BRANCH_RE = re.compile(
+    r"^(feature|feat|fix|hotfix|security|chore|deps|docs|test|refactor|remove|ci)/"
+)
+PROTECTED_BRANCHES = {"main", "master", "develop"}
+DOC_PATH_RE = re.compile(r"^(README\.md|docs/|docs-site/)")
+ROUTE_PATH_RE = re.compile(r"^backend/src/.+/(?:routes|[^/]*router)\.py$")
+
+JUNK_RULES = [
+    (re.compile(r"(^|/)\.DS_Store$"), "staged macOS metadata file"),
+    (re.compile(r"(^|/).+\.sw[op]$"), "staged editor swap file"),
+    (re.compile(r"(^|/).+~$"), "staged editor backup file"),
+    (re.compile(r"(^|/)\.pytest_cache(/|$)"), "staged pytest cache"),
+    (re.compile(r"(^|/)\.ruff_cache(/|$)"), "staged ruff cache"),
+    (re.compile(r"(^|/)\.svelte-kit(/|$)"), "staged SvelteKit build artifact"),
+    (re.compile(r"(^|/)node_modules(/|$)"), "staged node_modules artifact"),
+    (re.compile(r"(^|/)(dist|build)(/|$)"), "staged build artifact"),
+    (re.compile(r"(^|/)\.claude/state(/|$)"), "staged Claude runtime state"),
+    (re.compile(r"(^|/)\.claude/stats(/|$)"), "staged Claude runtime stats"),
+    (re.compile(r"(^|/)backend/celerybeat-schedule$"), "staged Celery runtime schedule"),
+]
+ENV_PATH_RE = re.compile(r"(^|/)\.env(\.[^/]+)?$")
+
+SECURITY_TRIGGER_RE = re.compile(
+    r"(^|/)(auth|authz|tenant|tenancy|permission|secret|credential|api[_-]?key|oauth|oidc|csrf|federation)(/|_|-|\.|$)"
+)
+
+
+def run_git(repo_root: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), *args],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or f"git {' '.join(args)} failed")
+    return result.stdout.strip()
+
+
+def repo_root_from(path_arg: str | None) -> Path:
+    if path_arg:
+        return Path(path_arg).resolve()
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("Not inside a git repository and --repo-root was not provided")
+    return Path(result.stdout.strip()).resolve()
+
+
+def staged_files(repo_root: Path) -> list[str]:
+    output = run_git(repo_root, "diff", "--cached", "--name-only", "--diff-filter=ACMR")
+    if not output:
+        return []
+    return [line for line in output.splitlines() if line]
+
+
+def has_docs_edits(paths: list[str]) -> bool:
+    return any(DOC_PATH_RE.search(path) for path in paths)
+
+
+def unique(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            ordered.append(item)
+    return ordered
+
+
+def classify(repo_root: Path) -> dict[str, object]:
+    branch = run_git(repo_root, "branch", "--show-current")
+    paths = staged_files(repo_root)
+    hard_failures: list[str] = []
+    warnings: list[str] = []
+    security_paths: list[str] = []
+    openapi_paths: list[str] = []
+    docs_paths: list[str] = []
+
+    if not paths:
+        hard_failures.append("No staged files. Stage the intended changes before running /eneo-commit.")
+
+    for path in paths:
+        normalized = path.replace("\\", "/")
+        for regex, label in JUNK_RULES:
+            if regex.search(normalized):
+                hard_failures.append(f"{normalized}: {label}. Remove it from the commit.")
+                break
+
+        if ENV_PATH_RE.search(normalized):
+            hard_failures.append(
+                f"{normalized}: .env files must not be committed. Move secrets to a safe local env file."
+            )
+
+        if ROUTE_PATH_RE.search(normalized):
+            openapi_paths.append(normalized)
+            docs_paths.append(normalized)
+
+        if normalized.startswith("frontend/apps/web/src/routes/"):
+            docs_paths.append(normalized)
+
+        if DOC_PATH_RE.search(normalized):
+            docs_paths.append(normalized)
+
+        if normalized.startswith("backend/alembic/"):
+            security_paths.append(normalized)
+
+        if SECURITY_TRIGGER_RE.search(normalized):
+            security_paths.append(normalized)
+
+    if branch in PROTECTED_BRANCHES:
+        warnings.append(
+            f"Branch '{branch}' is long-lived. Prefer a reviewable feature branch unless this is intentional."
+        )
+    elif branch and not PREFERRED_BRANCH_RE.match(branch):
+        warnings.append(
+            f"Branch '{branch}' does not match the preferred prefixes (feature/, fix/, docs/, security/, ...). CI enforces the naming rule on PRs."
+        )
+
+    docs_update_likely = bool(docs_paths) and not has_docs_edits(paths)
+    if openapi_paths:
+        warnings.append(
+            "Staged backend route files likely need `response_model`, `description`, `responses`, and an OpenAPI sanity check."
+        )
+    if docs_update_likely:
+        warnings.append(
+            "Staged changes likely deserve a minimal docs or docs-site follow-up. Keep it surgical."
+        )
+
+    return {
+        "ok": not hard_failures,
+        "repo_root": str(repo_root),
+        "branch": branch,
+        "staged_files": paths,
+        "hard_failures": unique(hard_failures),
+        "warnings": unique(warnings),
+        "signals": {
+            "security_review_needed": bool(security_paths),
+            "openapi_review_needed": bool(openapi_paths),
+            "docs_update_likely": docs_update_likely,
+            "branch_name_needs_attention": bool(warnings),
+        },
+        "security_paths": unique(security_paths),
+        "openapi_paths": unique(openapi_paths),
+        "docs_paths": unique(docs_paths),
+    }
+
+
+def print_human(result: dict[str, object]) -> int:
+    print(f"branch: {result['branch']}")
+    print("staged:")
+    for path in result["staged_files"]:
+        print(f"  - {path}")
+    failures = result["hard_failures"]
+    warnings = result["warnings"]
+    if failures:
+        print("hard_failures:")
+        for item in failures:
+            print(f"  - {item}")
+    if warnings:
+        print("warnings:")
+        for item in warnings:
+            print(f"  - {item}")
+    return 0 if result["ok"] else 2
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--repo-root")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+
+    try:
+        repo_root = repo_root_from(args.repo_root)
+        result = classify(repo_root)
+    except RuntimeError as exc:
+        if args.json:
+            print(json.dumps({"ok": False, "hard_failures": [str(exc)], "warnings": []}))
+        else:
+            print(str(exc), file=sys.stderr)
+        return 2
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0 if result["ok"] else 2
+    return print_human(result)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

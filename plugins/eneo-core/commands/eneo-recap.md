@@ -25,7 +25,7 @@ Finalize a Deep-lane milestone. Pre-flight checks prevent premature closure.
 - Confirm every phase file under `.claude/phases/<slug>/` has frontmatter `status: shipped`. List any missing and print:
   ```
   ✗ Cannot recap — phase <N> is not shipped yet.
-    Fix: run /eneo-start <slug> <N> → /eneo-verify → /eneo-ship first.
+    Fix: run /eneo-start <slug> <N> → /eneo-verify → /eneo-commit → /eneo-ship first.
     Next: /eneo-start <slug>
   ```
   and exit.

@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Deterministic commit-message review for the Eneo harness."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+BANNED_SUBJECTS = {
+    "wip",
+    "tmp",
+    "misc",
+    "update",
+    "updates",
+    "changes",
+    "stuff",
+    "fix",
+    "minor fix",
+    "test",
+    "tests",
+    "work",
+}
+
+
+def repo_root_from(path_arg: str | None) -> Path | None:
+    if path_arg:
+        return Path(path_arg).resolve()
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return Path(result.stdout.strip()).resolve()
+
+
+def staged_files(repo_root: Path | None) -> list[str]:
+    if repo_root is None:
+        return []
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return []
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def load_message(args: argparse.Namespace) -> str:
+    if args.message_file:
+        return Path(args.message_file).read_text(encoding="utf-8")
+    return args.message or ""
+
+
+def classify(message: str, repo_root: Path | None) -> dict[str, object]:
+    raw = message.rstrip()
+    lines = raw.splitlines()
+    subject = lines[0].strip() if lines else ""
+    warnings: list[str] = []
+    hard_failures: list[str] = []
+
+    if not subject:
+        hard_failures.append("Commit message subject is empty.")
+    else:
+        normalized = re.sub(r"\s+", " ", subject).strip().lower()
+        if normalized in BANNED_SUBJECTS:
+            hard_failures.append(
+                f"Commit subject '{subject}' is too vague. Name the actual intent of the change."
+            )
+        if len(subject) > 100:
+            hard_failures.append(
+                f"Commit subject is {len(subject)} chars. Keep it under 100 characters."
+            )
+        elif len(subject) > 72:
+            warnings.append(
+                f"Commit subject is {len(subject)} chars. Prefer <= 72 for readability."
+            )
+        if subject.endswith("."):
+            warnings.append("Commit subject ends with a period. Prefer a bare subject line.")
+
+    if len(lines) > 1 and lines[1].strip():
+        warnings.append("If you include a body, keep a blank line between the subject and body.")
+
+    if any(path.startswith("backend/alembic/versions/") for path in staged_files(repo_root)):
+        if subject and not subject.lower().startswith("alembic:"):
+            warnings.append(
+                "Staged Alembic migration detected. Prefer an `alembic:` subject prefix for migration commits."
+            )
+
+    return {
+        "ok": not hard_failures,
+        "subject": subject,
+        "hard_failures": hard_failures,
+        "warnings": warnings,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--message")
+    parser.add_argument("--message-file")
+    parser.add_argument("--repo-root")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+
+    if not args.message and not args.message_file:
+        print("Provide --message or --message-file.", file=sys.stderr)
+        return 2
+
+    result = classify(load_message(args), repo_root_from(args.repo_root))
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"subject: {result['subject']}")
+        for item in result["hard_failures"]:
+            print(f"hard: {item}")
+        for item in result["warnings"]:
+            print(f"warn: {item}")
+    return 0 if result["ok"] else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

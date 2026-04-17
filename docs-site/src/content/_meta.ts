@@ -13,6 +13,10 @@ const meta: MetaRecord = {
     title: 'Workflow',
     type: 'page',
   },
+  features: {
+    title: 'Features',
+    type: 'page',
+  },
   'how-it-works': {
     title: 'How It Works',
     type: 'page',

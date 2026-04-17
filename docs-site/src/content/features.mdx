@@ -1,0 +1,139 @@
+# Features
+
+The harness is designed to make Eneo work easier to start, safer to ship, and more consistent across developers and AI-assisted sessions.
+
+## TL;DR
+
+- one shared workflow for small and large changes
+- deterministic diagnostics and runtime enforcement
+- commit review before PR creation
+- stronger gates only when the risk justifies them
+- findings capture without polluting the current task
+- AI help where judgment helps, deterministic checks where consistency matters
+
+## Workflow features
+
+### Lane-based execution
+
+The harness does not force one heavy process on every change.
+
+- **Fast** for tiny bounded work
+- **Standard** for small multi-file slices
+- **Deep** for risky or cross-cutting work
+
+That keeps the common path light while still giving risky work more structure.
+
+### Explicit next step at each stage
+
+The commands are designed to leave the developer with one obvious next move:
+
+- `/eneo-core:eneo-new` chooses the lane
+- `/eneo-core:eneo-start` resumes the next phase or wave
+- `/eneo-core:eneo-verify` runs the quality gates
+- `/eneo-core:eneo-commit` reviews the staged commit
+- `/eneo-core:eneo-ship` opens the PR with metadata and evidence
+- `/eneo-core:eneo-recap` closes the milestone
+
+The goal is less ambiguity, not more ceremony.
+
+## Quality and safety features
+
+### Deterministic diagnostics
+
+`/eneo-core:eneo-doctor` gives one consistent diagnostic path for:
+
+- host vs container mode
+- tool availability
+- pyright / pytest / bun readiness
+- stale task state
+- ratchet baseline presence
+
+This replaces a lot of ad hoc shell digging.
+
+### Runtime enforcement
+
+`eneo-standards` provides the safety layer:
+
+- phase gates for RED / GREEN / REFACTOR
+- protected-file rules
+- bash firewall rules
+- coverage and mutation ratchets
+- typecheck and stop hooks
+- helper binaries for environment and state handling
+
+This keeps important rules enforceable instead of leaving them as tribal knowledge.
+
+### Commit-time review
+
+`/eneo-core:eneo-commit` is the commit-review step between verification and PR creation.
+
+It combines:
+
+- deterministic staged-file checks
+- deterministic commit-message checks
+- conditional security review for risky diffs
+- normal `git commit`, so repo hooks still remain authoritative
+
+This makes commit hygiene explicit without waiting until PR creation to catch issues.
+
+### Risk-based review gates
+
+The harness does not run every expensive review on every change.
+
+`/eneo-core:eneo-verify` can trigger deeper review only when the change is actually risky, for example:
+
+- audit schema changes
+- cross-tenant impact
+- authz-sensitive work
+- large diffs
+
+That keeps review effort proportional to risk.
+
+## Developer-experience features
+
+### Low-friction AI-assisted workflow
+
+The harness is built around a clear split:
+
+- deterministic checks should stay deterministic
+- AI should help where judgment is useful
+- PR creation should happen only after evidence is ready
+
+That makes automation safer and easier to reason about.
+
+### Status line and helper commands
+
+`eneo-standards` also includes:
+
+- a status line with branch, context, and runtime hints
+- helper binaries like `eneo-env-report`, `eneo-exec`, and `eneo-task-update`
+
+These features reduce shell glue and repeated manual setup.
+
+### Findings without derailing current work
+
+`eneo-findings` gives the repo a separate place for:
+
+- backlog capture
+- learnings worth extracting
+- follow-up work that should not hijack the current task
+
+That helps the current task stay focused.
+
+## Design choices
+
+### What the harness intentionally optimizes for
+
+- clear next steps
+- earlier feedback
+- fewer repeated mistakes
+- one shared team workflow
+- compatibility with AI-assisted development
+
+### What it intentionally does not do
+
+- it does not add another required task system on top of the existing state and artifact flow
+- it does not make every review step blocking
+- it does not force the deepest process on small changes
+
+The design goal is a workflow that feels practical, not ceremonial.
