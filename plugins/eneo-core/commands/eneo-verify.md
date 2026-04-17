@@ -17,7 +17,7 @@ model: sonnet
 
 # /eneo-verify
 
-Run seven quality gates on the current phase. Stream each gate's result as it completes (don't batch). Write evidence to `.claude/phases/<slug>/phase-<NN>-verify.md` and set `current-task.json.next_hint = "/eneo-ship"` on success.
+Run seven quality gates on the current phase. Stream each gate's result as it completes (don't batch). Write evidence to `.claude/phases/<slug>/phase-<NN>-verify.md` and set `current-task.json.next_hint = "/eneo-commit"` on success.
 
 Every `eneo_exec` call is wrapped through the shared env library so dual-mode (host/in-container) works uniformly.
 
@@ -123,16 +123,16 @@ If triggered, spawn three fresh-context judges (`autoreason-judge` × 3) with A/
 
 ## Evidence file
 
-Write `.claude/phases/<slug>/phase-<NN>-verify.md` with the streamed log verbatim (command outputs included) — this is the SuperClaude "Four Questions" evidence required by `/eneo-ship`.
+Write `.claude/phases/<slug>/phase-<NN>-verify.md` with the streamed log verbatim (command outputs included) — this is the SuperClaude "Four Questions" evidence required by `/eneo-commit` and `/eneo-ship`.
 
 ## Final output
 
 ```
 ✓ All gates pass. Phase <N> verified.
   Evidence: .claude/phases/<slug>/phase-<NN>-verify.md
-  Next: /eneo-ship
+  Next: /eneo-commit
 ```
 
-Set `current-task.json.next_hint = "/eneo-ship"` and status `verified`.
+Set `current-task.json.next_hint = "/eneo-commit"` and status `verified`.
 
 On any gate failure: set `status = "blocked"` with the failing gate in `next_hint`; do NOT proceed. Let the developer fix and re-run.

@@ -6,6 +6,7 @@ Claude Code marketplace for the Eneo workflow.
 
 - install `eneo-core` and `eneo-standards`
 - start work with `/eneo-core:eneo-new "<change>"`
+- commit through `/eneo-core:eneo-commit "<message>"`
 - run `/eneo-core:eneo-doctor` when the environment feels wrong
 - let `eneo-standards` enforce TDD, audit, tenancy, and quality gates
 
@@ -44,9 +45,9 @@ Then run:
 
 ## Day-to-day flow
 
-- **Fast:** `/eneo-new` → edit → `/eneo-verify` → `/eneo-ship`
-- **Standard:** `/eneo-new` → `/eneo-start` → `/eneo-verify` → `/eneo-ship`
-- **Deep:** `/eneo-new` → `/eneo-discuss` → `/eneo-plan` → `/eneo-start` → `/eneo-verify` → `/eneo-ship` → `/eneo-recap`
+- **Fast:** `/eneo-new` → edit → `/eneo-verify` → `/eneo-commit` → `/eneo-ship`
+- **Standard:** `/eneo-new` → `/eneo-start` → `/eneo-verify` → `/eneo-commit` → `/eneo-ship`
+- **Deep:** `/eneo-new` → `/eneo-discuss` → `/eneo-plan` → `/eneo-start` → `/eneo-verify` → `/eneo-commit` → `/eneo-ship` → `/eneo-recap`
 
 Command discovery note: `/help` mostly shows built-ins. For plugin commands, type `/` and filter by `eneo`, or inspect the plugin in `/plugin`.
 

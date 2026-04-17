@@ -32,10 +32,10 @@ Then run `/eneo-doctor` to verify the environment.
 
 /eneo-new picks the lane and creates the right artifact. Then:
 
-- Fast:     /eneo-new (choose "proceed") → edit → /eneo-verify → /eneo-ship
-- Standard: /eneo-new → /eneo-start → /eneo-verify → /eneo-ship
+- Fast:     /eneo-new (choose "proceed") → edit → /eneo-verify → /eneo-commit → /eneo-ship
+- Standard: /eneo-new → /eneo-start → /eneo-verify → /eneo-commit → /eneo-ship
 - Deep:     /eneo-new → /eneo-discuss → /eneo-plan →
-            /eneo-start (per phase) → /eneo-verify → /eneo-ship → /eneo-recap
+            /eneo-start (per phase) → /eneo-verify → /eneo-commit → /eneo-ship → /eneo-recap
 
 /eneo-start resumes whichever plan you're in — no args in the common case.
 /eneo-doctor when anything feels off; it prints fixes.

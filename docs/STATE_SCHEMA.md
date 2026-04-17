@@ -49,7 +49,7 @@
 | `wave_total` | integer \| null | `/eneo-start` | Total waves in the phase. |
 | `wave_status` | object | `/eneo-start` + `wave-barrier.sh` | `{ "1": "done", "2": "in_progress", "3": "pending" }`. |
 | `active_agents` | string[] | `/eneo-start` sets; `wave-barrier.sh` removes one returning agent at a time | Empty when idle. Duplicate names are allowed when a wave intentionally dispatches multiple agents of the same type. |
-| `status` | `"in_progress"\|"blocked"\|"verified"\|"done"` | any command | Coarse lifecycle. `verified` is the gate-passed state consumed by `/eneo-ship`; `done` is terminal and normally reached just before `/eneo-recap` clears state. |
+| `status` | `"in_progress"\|"blocked"\|"verified"\|"done"` | any command | Coarse lifecycle. `verified` is the gate-passed state consumed by `/eneo-commit` and `/eneo-ship`; `done` is terminal and normally reached just before `/eneo-recap` clears state. |
 | `started_at` | ISO8601 | `/eneo-new` | Immutable after creation. |
 | `last_update` | ISO8601 | every writer | Updated on every write via `date -u +%Y-%m-%dT%H:%M:%SZ`. |
 | `next_hint` | string | every successful command | The `Next:` line the status line / terminal should display. |
@@ -104,7 +104,7 @@ eneo_task_update \
 | `plugins/eneo-standards/hooks/session-start-context.sh` | Reads whole file to print session context. |
 | `plugins/eneo-standards/statusline/eneo-statusline.sh` | Reads everything for line 2 rendering. |
 | `/eneo-doctor` | Detects stale state file (points to missing plan → suggest `rm`). |
-| `/eneo-start`, `/eneo-verify`, `/eneo-ship`, `/eneo-recap` | Primary writers. |
+| `/eneo-start`, `/eneo-verify`, `/eneo-commit`, `/eneo-ship`, `/eneo-recap` | Primary writers. |
 
 ## Phase-state mirror file
 

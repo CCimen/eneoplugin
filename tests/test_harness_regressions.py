@@ -52,6 +52,16 @@ def run_python_script(script: Path, *args: str, cwd: Path | None = None) -> subp
     )
 
 
+def run_executable(script: Path, *args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(script), *args],
+        text=True,
+        capture_output=True,
+        cwd=str(cwd) if cwd else None,
+        check=False,
+    )
+
+
 class HarnessRegressionTests(unittest.TestCase):
     def test_eneo_new_fast_lane_prompt_avoids_redundant_question_for_bracket_one(self) -> None:
         command = (REPO_ROOT / "plugins" / "eneo-core" / "commands" / "eneo-new.md").read_text(encoding="utf-8")
@@ -109,10 +119,21 @@ class HarnessRegressionTests(unittest.TestCase):
             REPO_ROOT / "plugins" / "eneo-standards" / "bin" / "eneo-task-init",
             REPO_ROOT / "plugins" / "eneo-standards" / "bin" / "eneo-task-update",
             REPO_ROOT / "plugins" / "eneo-standards" / "bin" / "eneo-doctor-report",
+            REPO_ROOT / "plugins" / "eneo-standards" / "bin" / "eneo-commit-preflight",
+            REPO_ROOT / "plugins" / "eneo-standards" / "bin" / "eneo-commit-message-check",
         ]
         for path in required:
             self.assertTrue(path.exists(), str(path))
             self.assertTrue(os.access(path, os.X_OK), f"not executable: {path}")
+
+    def test_eneo_commit_prompt_uses_helpers_and_conditional_security_review(self) -> None:
+        command = (REPO_ROOT / "plugins" / "eneo-core" / "commands" / "eneo-commit.md").read_text(encoding="utf-8")
+        self.assertIn("eneo-commit-preflight --json", command)
+        self.assertIn("eneo-commit-message-check --json", command)
+        self.assertIn("security-reviewer", command)
+        self.assertIn("Do **not** block solely on the subagent's opinion", command)
+        self.assertIn("Let `git commit` run the repository's normal commit hooks", command)
+        self.assertIn("Next: /eneo-ship", command)
 
     def test_plugin_subagents_use_plain_tool_names_and_preload_referenced_skills(self) -> None:
         agent_paths = sorted((REPO_ROOT / "plugins" / "eneo-core" / "agents").glob("*.md"))
@@ -132,6 +153,11 @@ class HarnessRegressionTests(unittest.TestCase):
         (root / "backend" / "src" / "intric").mkdir(parents=True)
         (root / ".claude" / "state").mkdir(parents=True)
         return root
+
+    def init_git_repo(self, root: Path, branch: str = "feature/demo") -> None:
+        subprocess.run(["git", "init", "-b", branch], cwd=root, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=root, check=True, capture_output=True, text=True)
 
     def write_task_state(self, root: Path, *, active_agents: list[str]) -> Path:
         state_path = root / ".claude" / "state" / "current-task.json"
@@ -386,6 +412,63 @@ All checks pass.
         self.assertEqual(result.returncode, 0, result.stderr)
         task = read_json(root / ".claude" / "state" / "current-task.json")
         self.assertEqual(task["active_agents"], ["Explore", "Plan"])
+
+    def test_commit_preflight_flags_junk_and_security_sensitive_paths(self) -> None:
+        root = self.make_repo_root()
+        self.init_git_repo(root, branch="spike/demo")
+        (root / ".DS_Store").write_text("junk\n", encoding="utf-8")
+        router = root / "backend" / "src" / "intric" / "tenant_router.py"
+        router.write_text("from fastapi import APIRouter\n", encoding="utf-8")
+        subprocess.run(["git", "add", ".DS_Store", str(router.relative_to(root))], cwd=root, check=True, capture_output=True, text=True)
+
+        result = run_executable(
+            REPO_ROOT / "plugins" / "eneo-standards" / "bin" / "eneo-commit-preflight",
+            "--json",
+            "--repo-root",
+            str(root),
+        )
+
+        self.assertEqual(result.returncode, 2, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertIn(".DS_Store: staged macOS metadata file. Remove it from the commit.", payload["hard_failures"])
+        self.assertTrue(payload["signals"]["security_review_needed"])
+        self.assertTrue(payload["signals"]["openapi_review_needed"])
+        self.assertTrue(payload["signals"]["docs_update_likely"])
+        self.assertTrue(any("does not match the preferred prefixes" in warning for warning in payload["warnings"]))
+
+    def test_commit_message_check_rejects_placeholder_subject(self) -> None:
+        result = run_executable(
+            REPO_ROOT / "plugins" / "eneo-standards" / "bin" / "eneo-commit-message-check",
+            "--json",
+            "--message",
+            "WIP",
+        )
+
+        self.assertEqual(result.returncode, 2, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertTrue(any("too vague" in failure for failure in payload["hard_failures"]))
+
+    def test_commit_message_check_warns_for_migration_prefix(self) -> None:
+        root = self.make_repo_root()
+        self.init_git_repo(root)
+        migration = root / "backend" / "alembic" / "versions" / "1234_demo.py"
+        migration.parent.mkdir(parents=True, exist_ok=True)
+        migration.write_text("revision = '1234'\n", encoding="utf-8")
+        subprocess.run(["git", "add", str(migration.relative_to(root))], cwd=root, check=True, capture_output=True, text=True)
+
+        result = run_executable(
+            REPO_ROOT / "plugins" / "eneo-standards" / "bin" / "eneo-commit-message-check",
+            "--json",
+            "--repo-root",
+            str(root),
+            "--message",
+            "Add migration",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(any("`alembic:` subject prefix" in warning for warning in payload["warnings"]))
 
 
 if __name__ == "__main__":
