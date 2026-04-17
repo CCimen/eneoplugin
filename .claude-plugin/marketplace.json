@@ -6,13 +6,13 @@
   "plugins": [
     {
       "name": "eneo-core",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "source": "./plugins/eneo-core",
       "description": "Core /eneo-* workflow commands, subagents, and implementation skills."
     },
     {
       "name": "eneo-standards",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "source": "./plugins/eneo-standards",
       "description": "Hooks, validators, helper binaries, and status line for the Eneo harness."
     },
