@@ -11,7 +11,6 @@ allowed-tools:
   - Bash(git *)
   - Bash(gh issue create *)
   - Bash(date *)
-model: sonnet
 hooks:
   Stop:
     - hooks:

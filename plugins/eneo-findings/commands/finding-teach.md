@@ -11,7 +11,6 @@ allowed-tools:
   - Bash(git checkout *)
   - Bash(git add *)
   - Bash(git commit *)
-model: opus
 ---
 
 # /finding-teach

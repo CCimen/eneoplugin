@@ -8,7 +8,6 @@ allowed-tools:
   - Task
   - Edit
   - Write
-model: opus
 ---
 
 # /eneo-discuss

@@ -15,7 +15,6 @@ allowed-tools:
   - Bash(pytest *)
   - Bash(pyright *)
   - Bash(jq *)
-model: sonnet
 ---
 
 # /eneo-start

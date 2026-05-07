@@ -9,7 +9,6 @@ allowed-tools:
   - Bash(mv *)
   - Bash(find *)
   - Bash(jq *)
-model: sonnet
 ---
 
 # /eneo-prune

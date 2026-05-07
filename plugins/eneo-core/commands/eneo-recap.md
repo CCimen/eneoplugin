@@ -12,7 +12,6 @@ allowed-tools:
   - Bash(git *)
   - Bash(mv *)
   - Bash(jq *)
-model: sonnet
 ---
 
 # /eneo-recap

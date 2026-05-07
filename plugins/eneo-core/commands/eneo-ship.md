@@ -10,7 +10,6 @@ allowed-tools:
   - Bash(gh pr *)
   - Bash(git *)
   - Bash(jq *)
-model: sonnet
 hooks:
   Stop:
     - hooks:

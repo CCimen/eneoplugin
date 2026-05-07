@@ -8,7 +8,6 @@ allowed-tools:
   - Write
   - Edit
   - Task
-model: opus
 hooks:
   Stop:
     - hooks:

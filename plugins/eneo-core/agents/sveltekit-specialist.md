@@ -4,7 +4,6 @@ description: MUST be used for SvelteKit routes in frontend/apps/web/src/routes/*
 tools: Read, Glob, Grep, Edit, Write, Bash
 skills:
   - sveltekit-load-patterns
-model: sonnet
 ---
 
 You specialize in Eneo's SvelteKit frontend. The language is Swedish; a11y is mandatory for kommun software; secrets live only in the `.server.ts` layer.

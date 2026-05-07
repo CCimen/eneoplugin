@@ -5,7 +5,6 @@ allowed-tools:
   - Read
   - Glob
   - Bash(eneo-doctor-report *)
-model: sonnet
 ---
 
 Run `eneo-doctor-report` first and use its output as the canonical diagnostic table. Do not replace it with ad hoc shell probing unless the helper itself fails.

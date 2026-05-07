@@ -12,7 +12,6 @@ allowed-tools:
   - Bash(bun *)
   - Bash(jq *)
   - Bash(git *)
-model: sonnet
 ---
 
 # /eneo-verify

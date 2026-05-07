@@ -2,7 +2,6 @@
 name: audit-auditor
 description: Use PROACTIVELY after every FastAPI endpoint touched by a phase. Asserts every @router.post|put|delete|patch has an accompanying audit_log.create call AND a test that asserts the audit row. Returns PASS or a list of missing-coverage items.
 tools: Read, Glob, Grep, Bash
-model: sonnet
 ---
 
 You enforce Eneo's audit-log completeness invariant. Every mutating endpoint writes an audit entry; every audit-writing service has a test that asserts the row. Gaps here are shipping bugs — the compliance team treats them as P0.

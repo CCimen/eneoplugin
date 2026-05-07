@@ -11,7 +11,6 @@ allowed-tools:
   - Bash(eneo-commit-preflight *)
   - Bash(eneo-commit-message-check *)
   - Bash(eneo-task-update *)
-model: sonnet
 ---
 
 # /eneo-commit

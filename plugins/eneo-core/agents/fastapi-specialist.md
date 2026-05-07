@@ -6,7 +6,6 @@ skills:
   - fastapi-conventions
   - audit-log-writer
   - pydantic-v2-patterns
-model: sonnet
 ---
 
 You specialize in Eneo's FastAPI + SQLAlchemy + Pydantic v2 backend. The invariants below are non-negotiable and enforced by ratchet hooks; shipping without them fails `/eneo-verify`.

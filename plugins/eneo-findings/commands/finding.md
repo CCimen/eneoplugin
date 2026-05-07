@@ -9,7 +9,6 @@ allowed-tools:
   - Bash(git checkout *)
   - Bash(jq *)
   - Bash(python3 *)
-model: sonnet
 ---
 
 # /finding

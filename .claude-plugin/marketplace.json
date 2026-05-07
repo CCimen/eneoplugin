@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "eneo-core",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "source": "./plugins/eneo-core",
       "description": "Core /eneo-* workflow commands, subagents, and implementation skills."
     },
@@ -18,13 +18,13 @@
     },
     {
       "name": "eneo-review",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "source": "./plugins/eneo-review",
       "description": "Optional external review agents for risky changes."
     },
     {
       "name": "eneo-findings",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "source": "./plugins/eneo-findings",
       "description": "GitHub findings workflow and learning extraction."
     }
