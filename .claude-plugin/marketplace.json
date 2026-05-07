@@ -18,9 +18,9 @@
     },
     {
       "name": "eneo-review",
-      "version": "0.2.1",
+      "version": "0.3.0",
       "source": "./plugins/eneo-review",
-      "description": "Optional external review agents for risky changes."
+      "description": "On-demand /eneo-peer-review plus trigger-gated external review agents."
     },
     {
       "name": "eneo-findings",

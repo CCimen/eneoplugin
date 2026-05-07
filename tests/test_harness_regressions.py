@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -121,6 +123,7 @@ class HarnessRegressionTests(unittest.TestCase):
             REPO_ROOT / "plugins" / "eneo-standards" / "bin" / "eneo-doctor-report",
             REPO_ROOT / "plugins" / "eneo-standards" / "bin" / "eneo-commit-preflight",
             REPO_ROOT / "plugins" / "eneo-standards" / "bin" / "eneo-commit-message-check",
+            REPO_ROOT / "plugins" / "eneo-review" / "bin" / "eneo-peer-review",
         ]
         for path in required:
             self.assertTrue(path.exists(), str(path))
@@ -469,6 +472,304 @@ All checks pass.
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
         self.assertTrue(any("`alembic:` subject prefix" in warning for warning in payload["warnings"]))
+
+
+class PeerReviewRunnerTests(unittest.TestCase):
+    """Pure-helper coverage for the on-demand peer-review runner.
+
+    Loads the bin/eneo-peer-review file as a module so we can exercise the
+    inference and parsing helpers without spawning codex or claude.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import importlib.machinery
+        import importlib.util
+
+        runner_path = REPO_ROOT / "plugins" / "eneo-review" / "bin" / "eneo-peer-review"
+        loader = importlib.machinery.SourceFileLoader(
+            "eneo_peer_review_runner", str(runner_path)
+        )
+        spec = importlib.util.spec_from_loader("eneo_peer_review_runner", loader)
+        assert spec is not None
+        cls.runner = importlib.util.module_from_spec(spec)  # type: ignore[attr-defined]
+        loader.exec_module(cls.runner)  # type: ignore[attr-defined]
+
+    def test_split_mode_recognises_known_modes_and_treats_other_text_as_question(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        self.assertEqual(runner.split_mode_and_question([]), ("code", ""))
+        self.assertEqual(runner.split_mode_and_question(["plan"]), ("plan", ""))
+        self.assertEqual(
+            runner.split_mode_and_question(["plan", "should", "I"]),
+            ("plan", "should I"),
+        )
+        self.assertEqual(
+            runner.split_mode_and_question(["Is", "the", "boundary", "right?"]),
+            ("code", "Is the boundary right?"),
+        )
+
+    def test_focus_inference_combines_path_rules_and_question_keywords(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        focus = runner.infer_focus(
+            ["backend/src/intric/api/auth_router.py"], "is tenancy right?", []
+        )
+        self.assertIn("api shape", focus)
+        self.assertIn("tenancy", focus)
+        self.assertIn("security", focus)
+
+        svelte = runner.infer_focus(
+            ["frontend/apps/web/src/lib/x.svelte"], "is the UX clear?", []
+        )
+        self.assertIn("ux", svelte)
+        self.assertIn("accessibility", svelte)
+
+        default = runner.infer_focus([], "", [])
+        self.assertIn("maintainability", default)
+
+    def test_skepticism_resolves_blocking_for_risky_paths_and_deep_mode(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        self.assertEqual(runner.infer_skepticism("deep", [], None), "blocking")
+        self.assertEqual(
+            runner.infer_skepticism("code", ["backend/src/auth.py"], None),
+            "blocking",
+        )
+        self.assertEqual(
+            runner.infer_skepticism("code", ["frontend/x.ts"], None),
+            "skeptical",
+        )
+        self.assertEqual(
+            runner.infer_skepticism("code", ["backend/src/auth.py"], "standard"),
+            "standard",
+        )
+
+    def test_output_parser_extracts_verdict_green_score_and_blockers(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        sample = (
+            "VERDICT: changes_required\n"
+            "GREEN_LIGHT: no\n"
+            "MIN_SCORE: 7\n"
+            "\n"
+            "## Blockers\n"
+            "1. Token parser ownership unclear\n"
+            "2. Test coverage misses nested objects\n"
+            "- Worker scope is too broad\n"
+            "\n"
+            "## Findings\n"
+            "P0: foo\n"
+        )
+        self.assertEqual(runner.parse_verdict(sample), "changes_required")
+        self.assertEqual(runner.parse_green(sample), "no")
+        self.assertEqual(runner.parse_min_score(sample), 7)
+        self.assertEqual(
+            runner.parse_blockers(sample),
+            [
+                "Token parser ownership unclear",
+                "Test coverage misses nested objects",
+                "Worker scope is too broad",
+            ],
+        )
+
+    def test_help_runs_and_skipped_path_prints_install_hint(self) -> None:
+        runner_path = (
+            REPO_ROOT / "plugins" / "eneo-review" / "bin" / "eneo-peer-review"
+        )
+        help_result = run_executable(runner_path, "--help")
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn("eneo-peer-review", help_result.stdout)
+
+        # Strip both codex and claude from PATH so resolve_provider returns the
+        # SKIPPED path. We expect a clean exit-0 with the install hint.
+        sanitized_path = ":".join(
+            entry
+            for entry in os.environ.get("PATH", "").split(":")
+            if entry
+            and not (Path(entry) / "codex").exists()
+            and not (Path(entry) / "claude").exists()
+        )
+        env = {**os.environ, "PATH": sanitized_path}
+        skipped = subprocess.run(
+            [str(runner_path), "test"],
+            text=True,
+            capture_output=True,
+            env=env,
+            check=False,
+        )
+        self.assertEqual(skipped.returncode, 0)
+        self.assertIn("SKIPPED|", skipped.stdout)
+
+    def test_next_iteration_does_not_roll_back_after_state_reset(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            slug = "demo"
+            review_dir = root / ".claude" / "peer-reviews" / slug
+            review_dir.mkdir(parents=True)
+            (review_dir / "iter-001.md").write_text("first\n", encoding="utf-8")
+            (review_dir / "iter-002.md").write_text("second\n", encoding="utf-8")
+            # Empty state simulates --reset (state.json gone, artifacts kept).
+            self.assertEqual(runner.next_iteration(root, slug, {}), 3)
+            self.assertEqual(runner.next_iteration(root, slug, {"iteration": 1}), 3)
+            self.assertEqual(runner.next_iteration(root, slug, {"iteration": 5}), 6)
+
+    def test_resolve_extra_dirs_returns_parent_for_outside_files(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        with tempfile.TemporaryDirectory() as repo_tmp, tempfile.TemporaryDirectory() as outside_tmp:
+            repo = Path(repo_tmp)
+            outside_file = Path(outside_tmp) / "brief.md"
+            outside_file.write_text("brief\n", encoding="utf-8")
+            inside_file = repo / "inside.txt"
+            inside_file.write_text("inside\n", encoding="utf-8")
+            extras = runner.resolve_extra_dirs(
+                [str(inside_file)], [str(outside_file)], repo
+            )
+            self.assertEqual(extras, [str(Path(outside_tmp).resolve())])
+            # File path, not file path itself, is what gets passed through.
+            self.assertNotIn(str(outside_file.resolve()), extras)
+
+    def test_codex_jsonl_parser_extracts_thread_id_and_assistant_text(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        stdout = (
+            '{"type":"thread.started","thread_id":"019e029b-c96a-7763-b29a-6369e2183faf"}\n'
+            '{"type":"turn.started"}\n'
+            '{"type":"item.completed","item":{"id":"i0","type":"agent_message","text":"first chunk"}}\n'
+            '{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"second chunk"}}\n'
+            '{"type":"turn.completed","usage":{}}\n'
+        )
+        thread_id, text = runner.parse_codex_jsonl(stdout)
+        self.assertEqual(thread_id, "019e029b-c96a-7763-b29a-6369e2183faf")
+        self.assertIn("first chunk", text)
+        self.assertIn("second chunk", text)
+
+    def test_codex_jsonl_parser_tolerates_garbage_lines(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        stdout = "not json\n{}\n{\"type\":\"unknown\"}\n"
+        thread_id, text = runner.parse_codex_jsonl(stdout)
+        self.assertIsNone(thread_id)
+        self.assertEqual(text, "")
+
+    def test_show_artifact_prints_reviewer_section_only_by_default(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            slug = "demo"
+            review_dir = root / ".claude" / "peer-reviews" / slug
+            review_dir.mkdir(parents=True)
+            artifact_body = (
+                "# Peer review iteration 001 — demo\n"
+                "## Prompt\n"
+                "```text\n"
+                "REVIEW_PROMPT_SECRET\n"
+                "```\n"
+                "\n"
+                "## Reviewer output\n"
+                "```text\n"
+                "VERDICT: green\nREVIEWER_DETAIL\n"
+                "```\n"
+                "\n"
+                "## Reviewer stderr\n"
+                "```text\n"
+                "[none]\n"
+                "```\n"
+            )
+            (review_dir / "iter-001.md").write_text(artifact_body, encoding="utf-8")
+
+            # Default: prompt should NOT appear in stdout.
+            buf_default = io.StringIO()
+            with contextlib.redirect_stdout(buf_default):
+                rc = runner.show_artifact(root, slug, full=False)
+            self.assertEqual(rc, 0)
+            out_default = buf_default.getvalue()
+            self.assertIn("REVIEWER_DETAIL", out_default)
+            self.assertNotIn("REVIEW_PROMPT_SECRET", out_default)
+
+            # --full: prompt SHOULD appear.
+            buf_full = io.StringIO()
+            with contextlib.redirect_stdout(buf_full):
+                rc = runner.show_artifact(root, slug, full=True)
+            self.assertEqual(rc, 0)
+            self.assertIn("REVIEW_PROMPT_SECRET", buf_full.getvalue())
+
+    def test_known_modes_route_to_default_questions_and_modes(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        for mode in ("plan", "code", "green", "ready", "deep", "resume"):
+            self.assertIn(mode, runner.MODE_DEFAULT_QUESTION)
+            self.assertTrue(runner.MODE_DEFAULT_QUESTION[mode].strip())
+
+    def test_ready_is_recognized_as_a_known_mode_and_gates(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        self.assertIn("ready", runner.KNOWN_MODES)
+        self.assertIn("ready", runner.GATE_MODES)
+        self.assertIn("green", runner.GATE_MODES)
+        # deep MUST NOT auto-gate — it is advisory only.
+        self.assertNotIn("deep", runner.GATE_MODES)
+
+    def test_default_claude_tools_exclude_bash(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        # The reviewer has the diff inline; it should not need shell access by
+        # default. Teams can opt in via ENEO_PEER_REVIEW_CLAUDE_TOOLS.
+        self.assertNotIn("Bash", runner.DEFAULT_CLAUDE_TOOLS.split(","))
+        self.assertIn("Read", runner.DEFAULT_CLAUDE_TOOLS.split(","))
+
+    def test_default_codex_model_and_effort_are_unpinned(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        # No hardcoded model/effort defaults — users opt in via env vars so a
+        # specific model name never breaks accounts that don't have it.
+        self.assertEqual(runner.DEFAULT_CODEX_MODEL, "")
+        self.assertEqual(runner.DEFAULT_CODEX_EFFORT, "")
+
+    def test_review_cleared_requires_full_agreement(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        cleared = runner.review_cleared("green", "yes", 9, [], 8)
+        self.assertTrue(cleared)
+        # Contradiction: green verdict but GREEN_LIGHT no — must NOT clear.
+        self.assertFalse(runner.review_cleared("green", "no", 9, [], 8))
+        # Score below floor.
+        self.assertFalse(runner.review_cleared("green", "yes", 7, [], 8))
+        # Leftover blockers.
+        self.assertFalse(runner.review_cleared("green", "yes", 9, ["x"], 8))
+        # Missing score entirely.
+        self.assertFalse(runner.review_cleared("green", "yes", None, [], 8))
+
+    def test_decision_line_does_not_clear_on_contradictory_signals(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        contradiction = runner.decision_line("green", "no", 9, ["bad"], 8, True)
+        self.assertIn("revise", contradiction.lower())
+        cleared = runner.decision_line("green", "yes", 9, [], 8, True)
+        self.assertIn("cleared", cleared.lower())
+
+    def test_blockers_parser_treats_none_phrasings_as_empty(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        for body in (
+            "## Blockers\nnone\n",
+            "## Blockers\n- none\n",
+            "## Blockers\n1. none\n",
+            "## Blockers\nNone.\n",
+            "## Blockers\nNo blockers.\n",
+            "## Blockers\nN/A\n",
+        ):
+            self.assertEqual(runner.parse_blockers(body), [], body)
+
+    def test_min_score_regex_accepts_slash_ten(self) -> None:
+        runner = self.runner  # type: ignore[attr-defined]
+        self.assertEqual(runner.parse_min_score("MIN_SCORE: 8"), 8)
+        self.assertEqual(runner.parse_min_score("MIN_SCORE: 8/10"), 8)
+        self.assertEqual(runner.parse_min_score("MIN_SCORE: 9 / 10"), 9)
+        self.assertIsNone(runner.parse_min_score("MIN_SCORE: 11/10"))  # over range
+        self.assertIsNone(runner.parse_min_score("MIN_SCORE: high"))
+
+    def test_codex_resume_never_uses_last_flag(self) -> None:
+        # Source-level guarantee: --last must not be used as a code token.
+        # Allow it in prose/comments because the runner intentionally explains
+        # why it does NOT use --last.
+        runner_path = (
+            REPO_ROOT / "plugins" / "eneo-review" / "bin" / "eneo-peer-review"
+        )
+        source = runner_path.read_text(encoding="utf-8")
+        self.assertNotIn(
+            '"--last"',
+            source,
+            "codex --last is unsafe; resume only by captured session id",
+        )
 
 
 if __name__ == "__main__":

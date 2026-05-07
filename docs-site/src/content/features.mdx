@@ -89,6 +89,21 @@ The harness does not run every expensive review on every change.
 
 That keeps review effort proportional to risk.
 
+### On-demand peer review
+
+When you want an outside opinion on architecture, ownership, false-positive risk, or AI slop — but the change is not risky enough to fire `/eneo-verify`'s automatic gate — run `/eneo-peer-review`.
+
+```bash
+/eneo-peer-review                                          # review the current diff with inferred focus
+/eneo-peer-review "Is this the right ownership boundary?"  # plain-language input
+/eneo-peer-review plan "Should I implement this slice?"
+/eneo-peer-review ready                                    # gates: exits non-zero unless cleared
+/eneo-peer-review deep "Challenge architecture and TDD."   # stronger advisory review
+/eneo-peer-review show                                     # last review, reviewer-output only
+```
+
+The runner picks Codex first when installed, falls back to a fresh-context Claude session, and skips loudly with install hints when neither is available. State and artifacts live under `.claude/peer-reviews/<slug>/` so iteration N+1 resumes the reviewer's prior critique. See [eneo-review](/plugins/eneo-review) for the full surface.
+
 ## Developer-experience features
 
 ### Low-friction AI-assisted workflow

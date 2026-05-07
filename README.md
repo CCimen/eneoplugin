@@ -24,7 +24,7 @@ Claude Code marketplace for the Eneo workflow.
 | [`eneo-core`](plugins/eneo-core/) | Main `/eneo-*` workflow, subagents, and implementation skills |
 | [`eneo-standards`](plugins/eneo-standards/) | Hooks, validators, helper binaries, and status line |
 | [`eneo-findings`](plugins/eneo-findings/) | Findings workflow and learning extraction |
-| [`eneo-review`](plugins/eneo-review/) | Trigger-gated external review agents |
+| [`eneo-review`](plugins/eneo-review/) | On-demand `/eneo-peer-review` plus trigger-gated external review agents |
 
 ## Install
 
@@ -51,6 +51,21 @@ Then run:
 
 Command discovery note: `/help` mostly shows built-ins. For plugin commands, type `/` and filter by `eneo`, or inspect the plugin in `/plugin`.
 
+## When you want an outside opinion: `/eneo-peer-review`
+
+`/eneo-peer-review` is on-demand peer review — invoke it whenever you want a skeptical second pair of eyes on the current diff or task. It is not a hook and never auto-runs.
+
+```bash
+/eneo-peer-review                                          # review the current diff
+/eneo-peer-review "Is this the right ownership boundary?"  # plain-language question
+/eneo-peer-review plan "Should I implement this slice?"
+/eneo-peer-review ready                                    # gates: exits non-zero unless cleared
+/eneo-peer-review deep "Challenge tests, API shape, slop." # stronger advisory review
+/eneo-peer-review show                                     # last review, reviewer output only
+```
+
+The runner uses Codex if installed, falls back to a fresh-context Claude session, and skips loudly with install hints when neither is available. Iterations are stored under `.claude/peer-reviews/<slug>/`, and iteration N+1 resumes the reviewer's prior critique by captured session id (never `--last`). `green` and `ready` are aliases that gate the exit code; `deep` is advisory only — asking for a deeper review never punishes you. See [`plugins/eneo-review/`](plugins/eneo-review/) for full options and tuning env vars.
+
 ## What `/eneo-commit` does
 
 `/eneo-commit` is the commit-time review step between technical verification and PR creation.
@@ -76,7 +91,7 @@ The harness is intentionally split:
 - `eneo-core` owns workflow and subagents
 - `eneo-standards` owns runtime enforcement
 - `eneo-findings` owns backlog capture outside the current task
-- `eneo-review` stays quiet until `/eneo-verify` decides a change is risky enough to justify extra review
+- `eneo-review` stays quiet until `/eneo-verify` decides a change is risky enough to justify extra review, or until you run `/eneo-peer-review` for an on-demand architecture/code review
 
 ## Why this does not adopt beads / `br`
 
