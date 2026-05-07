@@ -1,19 +1,174 @@
 # eneo-review
 
-The review plugin holds the optional external-review agents.
+The review plugin gives developers two ways to ask for an outside opinion on a change. One is on-demand, the other is gate-based — both are deliberately optional.
 
-## Agents
+## What you can run
 
-- `codex-reviewer`
-- `gemini-reviewer`
+| What | When to use it | Output style |
+|---|---|---|
+| `/eneo-peer-review` | You want a peer review of the current diff or task right now. | Human-readable summary + saved artifact. |
+| `codex-reviewer` / `gemini-reviewer` subagents | Triggered automatically by `/eneo-verify` gate 7 on risky changes only. | Single-line `CANDIDATES|...` for tournament aggregation. |
 
-## When it runs
+These two surfaces share a plugin home but solve different problems. You almost always want the slash command.
 
-It is trigger-gated from `/eneo-verify` for risky changes such as:
+## On-demand: `/eneo-peer-review`
 
-- `audit:schema`
-- `tenancy:cross`
-- `authz`
-- very large changes
+A peer-review loop you invoke yourself. Plain-language input, smart inference, resumable session memory.
 
-This is intentionally not an always-on review layer. Low-risk work should pass through the normal harness checks without paying extra latency or context cost.
+### The commands you'll actually use
+
+```bash
+/eneo-peer-review
+/eneo-peer-review "Is this the right ownership boundary, or am I patching a symptom?"
+/eneo-peer-review plan "Should I implement this slice as scoped?"
+/eneo-peer-review ready
+/eneo-peer-review deep "Challenge architecture, false-positive risk, and TDD coverage."
+/eneo-peer-review show
+```
+
+That's the whole vocabulary. Modes are recognized as the first word; everything else becomes the question.
+
+### Modes
+
+| Mode | What it does | Exit code |
+|---|---|---|
+| `plan` | Reviews scope/ownership before implementation. Test plan suffices — implemented tests are not required. | Advisory (0 unless reviewer process fails) |
+| `code` (default) | Reviews the current diff. Skeptical by default. | Advisory |
+| `ready` / `green` | Resumes the prior review and verifies the previous blockers were actually fixed. **Gates the exit code** — exits non-zero if `GREEN_LIGHT` is not `yes`. | Gating |
+| `deep` | Stronger blocking-skepticism review. Advisory only — asking for a deeper opinion never punishes you. | Advisory |
+| `resume` | Resumes the prior review session without enforcing green. | Advisory |
+| `show` | Prints the latest review artifact's reviewer-output section. Add `--full` for prompt + diff. | n/a |
+
+`green` and `ready` are aliases — pick whichever phrasing your team prefers.
+
+### What gets inferred
+
+When you don't pass flags, the runner figures things out from your repo:
+
+- **Slug** from `current-task.json`, falling back to your git branch
+- **Paths** from `git diff HEAD` plus untracked files
+- **Focus lenses** from path patterns (e.g. `*.svelte` → `ux, tests`; `auth.py` → `security, tenancy, audit`) plus keywords in your question
+- **Skepticism** from the mode and risk of the touched paths (auth/audit/migrations bump to `blocking`)
+- **Iteration counter** from `max(state.json, on-disk artifacts) + 1` so `--reset` never overwrites an artifact
+- **Provider** — Codex if installed, otherwise fresh-context Claude, otherwise `SKIPPED|<reason>`
+
+You can override any of these with explicit flags (`--path`, `--focus`, `--skepticism`, `--reviewer`, `--slug`); see `eneo-peer-review --help` for the full list.
+
+### How sessions are remembered
+
+Iteration N+1 picks up where iteration N left off:
+
+- **Codex** — the `thread.started` UUID is captured from the JSON event stream and stored as `provider_session_id` in state. The next iteration runs `codex exec resume <UUID>` so the model resumes that exact thread. We never use `--last`, which is global state and can target an unrelated session.
+- **Claude (fallback)** — runs as a named session via `claude -p -n eneo-peer-<slug>`; subsequent iterations use `--resume <name>`.
+
+If `codex exec resume <id>` fails (session evicted, version drift), the runner retries fresh once and notes that in the artifact metadata. It never falls back to `--last`.
+
+### Provider independence — labelled honestly
+
+The summary tells you what kind of review you got:
+
+```text
+REVIEWER: codex
+INDEPENDENCE: external (codex CLI)
+```
+
+vs.
+
+```text
+REVIEWER: claude-fresh
+INDEPENDENCE: fresh same-model session — not external model diversity
+```
+
+A fresh Claude session is useful (no shared context with your main session), but it's not the same as a model-independent peer review. The runner says so explicitly so you can weigh the result correctly.
+
+### State and artifacts
+
+```text
+.claude/peer-reviews/<slug>/
+  state.json        # provider, provider_session_id, iteration, last verdict + blockers
+  iter-001.md       # full receipt: prompt, reviewer output, stderr
+  iter-002.md
+  ...
+```
+
+Artifacts are kept across `--reset` so you don't lose receipts. State.json is what gets cleared.
+
+### What stdout looks like
+
+Compact by default — the goal is for the main Claude session to consume the decision, not the full reasoning dump.
+
+```text
+Peer review iteration 002 — flow-field-namespace-typo-t046
+
+Decision: revise before commit
+
+REVIEWER: codex
+INDEPENDENCE: external (codex CLI)
+MODE: code
+SKEPTICISM: skeptical
+VERDICT: changes_required
+GREEN_LIGHT: no
+MIN_SCORE: 7
+
+Blockers:
+  1. Advanced JSON flow_input references may still false-positive.
+  2. Tests do not prove nested object behavior.
+
+Full review: .claude/peer-reviews/flow-field-namespace-typo-t046/iter-002.md
+Next: /eneo-peer-review green  (after fixing blockers)
+```
+
+Pass `--full` (or run `/eneo-peer-review show --full`) to dump the entire artifact instead.
+
+### Tuning per team
+
+Defaults are deliberately empty — the runner inherits whatever each developer's CLI is configured for, so a default model name never breaks accounts that don't have it. Set these in your shell profile to pin behavior for your team:
+
+| Env var | Default | Effect |
+|---|---|---|
+| `ENEO_PEER_REVIEW_CODEX_MODEL` | `""` (codex CLI default) | Pin a Codex model, e.g. `gpt-5.5-codex` |
+| `ENEO_PEER_REVIEW_CODEX_EFFORT` | `""` | Pin Codex reasoning effort, e.g. `xhigh` |
+| `ENEO_PEER_REVIEW_CLAUDE_MODEL` | `""` (session model) | Pin a Claude model. Leave empty to avoid the 1M-context billing trap. |
+| `ENEO_PEER_REVIEW_CLAUDE_TOOLS` | `Read,Glob,Grep` | Reviewer tool surface. Add `Bash` for deeper review. |
+| `ENEO_PEER_REVIEW_REQUIRED_MIN_SCORE` | `8` | Floor for `green`/`ready` gates. |
+| `ENEO_PEER_REVIEW_TIMEOUT_SECONDS` | `600` | Hard timeout per reviewer call. |
+| `ENEO_PEER_REVIEW_DIFF_BYTES` | `20000` | Max bytes of `git diff` inlined into the prompt. |
+| `ENEO_PEER_REVIEW_CONTEXT_BYTES` | `16000` | Max bytes per context-file excerpt. |
+| `ENEO_PEER_REVIEW_MAX_INFERRED_PATHS` | `30` | Cap on inferred paths from `git diff`. |
+
+### When `codex` is not installed
+
+The command exits with `SKIPPED|codex cli requested but not installed` (or `neither codex nor claude is installed` if both are missing) and prints install hints. Exit code stays `0` so it composes into pipelines without breaking. There's no silent fallback to Claude reviewing Claude — that would lie about reviewer independence.
+
+## Gate-based: `codex-reviewer` and `gemini-reviewer`
+
+These are subagents `/eneo-verify` gate 7 may invoke automatically. They're **not** for direct use.
+
+```text
+Triggered when ANY of:
+  audit_impact == "schema"
+  tenancy_impact == "cross"
+  labels contain "authz"
+  LOC delta for the phase > 800
+```
+
+Their output is a single line in the `CANDIDATES|A=...|B=...|AB=...` format that the `autoreason-judge` subagent feeds into a Borda tournament. Different problem, different contract — that's why `/eneo-peer-review` does not reuse them.
+
+## Why two surfaces
+
+| | `/eneo-peer-review` | `codex-reviewer` / `gemini-reviewer` |
+|---|---|---|
+| Who triggers it | The developer | `/eneo-verify` gate 7 |
+| When | Anytime you want a peer's view | Risky-change ship gate |
+| Output | Human-readable summary + artifact | Machine-aggregation candidates |
+| Gating | Only `green`/`ready` modes gate; everything else is advisory | The gate it serves is its only purpose |
+
+Both fail soft when the underlying CLI isn't installed. Neither auto-runs on every commit — review fatigue and cost would not pay back, and `/eneo-verify` already covers risky paths automatically.
+
+## Install
+
+```bash
+/plugin install eneo-review@eneoplugin
+```
+
+The plugin is optional — the harness works fine without it.

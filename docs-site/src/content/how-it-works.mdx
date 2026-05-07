@@ -7,7 +7,7 @@ The harness is split into four plugins on purpose:
 - `eneo-core` owns the workflow commands and subagents
 - `eneo-standards` owns enforcement, helper binaries, and the status line
 - `eneo-findings` owns backlog capture outside the current task
-- `eneo-review` stays mostly quiet until `/eneo-verify` decides a change is risky enough to justify external review
+- `eneo-review` stays mostly quiet — it runs when you explicitly invoke `/eneo-peer-review`, or when `/eneo-verify` decides a change is risky enough to justify external review
 
 ## State model
 

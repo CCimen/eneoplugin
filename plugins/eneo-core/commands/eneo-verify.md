@@ -112,7 +112,7 @@ Read `current-task.json.audit_impact`, `.tenancy_impact`, and the phase LOC delt
 - LOC > 800 for the phase
 - PR labels contain `authz`
 
-If skipped, print `gate 7/7: adversarial review skipped — change is low-risk`.
+If skipped, print `gate 7/7: adversarial review skipped — change is low-risk` followed on the next line by `  Optional: /eneo-peer-review for a manual architecture/code review.`.
 
 If triggered, spawn three fresh-context judges (`autoreason-judge` × 3) with A/B/AB incumbent / adversarial / synthesis per Section E. Blind Borda ranking. "Do nothing" is a first-class outcome.
 

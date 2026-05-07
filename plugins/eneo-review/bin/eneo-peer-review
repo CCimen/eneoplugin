@@ -1,0 +1,1254 @@
+#!/usr/bin/env python3
+"""On-demand peer review for the Eneo harness.
+
+Plain-language input. Smart inference. Resumable session memory across iterations.
+Works for any Eneo user — no hardcoded paths, no per-user defaults; everything is
+overridable via environment variables. Provider order: codex first if installed,
+else claude in fresh-context mode, else SKIPPED.
+
+Output contract is human-readable (VERDICT / GREEN_LIGHT / MIN_SCORE plus sections),
+not the Borda-style CANDIDATES line used by /eneo-verify gate 7.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Iterable
+
+# ---------------------------------------------------------------------------
+# Defaults — all env-overridable so different teams/users can tune without
+# forking. No hardcoded model names that could trigger billing surprises.
+# ---------------------------------------------------------------------------
+
+ENV_PREFIX = "ENEO_PEER_REVIEW_"
+
+DEFAULT_TIMEOUT_SECONDS = int(os.environ.get(f"{ENV_PREFIX}TIMEOUT_SECONDS", "600"))
+DEFAULT_REQUIRED_MIN_SCORE = int(os.environ.get(f"{ENV_PREFIX}REQUIRED_MIN_SCORE", "8"))
+DEFAULT_DIFF_BYTES = int(os.environ.get(f"{ENV_PREFIX}DIFF_BYTES", "20000"))
+DEFAULT_CONTEXT_BYTES = int(os.environ.get(f"{ENV_PREFIX}CONTEXT_BYTES", "16000"))
+DEFAULT_MAX_INFERRED_PATHS = int(os.environ.get(f"{ENV_PREFIX}MAX_INFERRED_PATHS", "30"))
+
+# Codex / Claude defaults — empty by default so we never pin a model that may
+# not exist for the developer's account or trigger billing surprises (the 1M
+# context tier requires extra-usage opt-in). Set ENEO_PEER_REVIEW_CODEX_MODEL /
+# ENEO_PEER_REVIEW_CLAUDE_MODEL etc. once in your shell profile if you want
+# specific routing.
+DEFAULT_CODEX_MODEL = os.environ.get(f"{ENV_PREFIX}CODEX_MODEL", "")
+DEFAULT_CODEX_EFFORT = os.environ.get(f"{ENV_PREFIX}CODEX_EFFORT", "")
+DEFAULT_CLAUDE_MODEL = os.environ.get(f"{ENV_PREFIX}CLAUDE_MODEL", "")
+DEFAULT_CLAUDE_EFFORT = os.environ.get(f"{ENV_PREFIX}CLAUDE_EFFORT", "")
+
+# Tools the Claude fresh-context reviewer is allowed.
+# Read-only by default. The reviewer has the diff inline; shelling out is rarely
+# needed for v1 and adds permission-prompt friction. Set ENEO_PEER_REVIEW_CLAUDE_TOOLS
+# to override (e.g. "Read,Glob,Grep,Bash") if your team trusts a deeper review.
+DEFAULT_CLAUDE_TOOLS = os.environ.get(f"{ENV_PREFIX}CLAUDE_TOOLS", "Read,Glob,Grep")
+
+KNOWN_MODES = ("plan", "code", "green", "ready", "deep", "resume", "show", "help")
+GATE_MODES = ("green", "ready")  # modes that imply --require-green
+
+VALID_FOCUS = (
+    "maintainability",
+    "code quality",
+    "clean architecture",
+    "ownership boundary",
+    "type contracts",
+    "tests",
+    "ux",
+    "accessibility",
+    "performance",
+    "time and space complexity",
+    "comments quality",
+    "ai-slop",
+    "api shape",
+    "security",
+    "tenancy",
+    "audit",
+    "data integrity",
+    "migration safety",
+    "agent ux",
+    "scope control",
+    "reviewability",
+)
+
+
+# ---------------------------------------------------------------------------
+# Inference helpers
+# ---------------------------------------------------------------------------
+
+
+def run_capture(command: list[str], cwd: Path | None = None) -> str:
+    try:
+        result = subprocess.run(
+            command, cwd=cwd, capture_output=True, text=True, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def repo_root() -> Path:
+    root = run_capture(["git", "rev-parse", "--show-toplevel"])
+    return Path(root).resolve() if root else Path.cwd().resolve()
+
+
+def slugify(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.lower()).strip("-")
+    return re.sub(r"-+", "-", slug) or "eneo-peer-review"
+
+
+def infer_slug(root: Path) -> str:
+    """Slug priority: current-task.json → git branch → 'untitled'."""
+    state_path = root / ".claude" / "state" / "current-task.json"
+    if state_path.exists():
+        try:
+            data = json.loads(state_path.read_text(encoding="utf-8"))
+            slug = data.get("slug")
+            if isinstance(slug, str) and slug.strip():
+                return slugify(slug)
+        except (OSError, json.JSONDecodeError):
+            pass
+    branch = run_capture(["git", "branch", "--show-current"], root)
+    if branch:
+        return slugify(branch)
+    return "untitled"
+
+
+def infer_paths(root: Path, max_paths: int) -> list[str]:
+    """Changed files relative to repo root: staged + unstaged + untracked."""
+    seen: list[str] = []
+
+    def add(line: str) -> None:
+        line = line.strip()
+        if not line or line in seen:
+            return
+        if len(seen) >= max_paths:
+            return
+        seen.append(line)
+
+    for cmd in (
+        ["git", "diff", "--name-only", "HEAD"],
+        ["git", "diff", "--name-only"],
+        ["git", "diff", "--cached", "--name-only"],
+    ):
+        for line in run_capture(cmd, root).splitlines():
+            add(line)
+    # Untracked
+    for line in run_capture(["git", "ls-files", "--others", "--exclude-standard"], root).splitlines():
+        add(line)
+    return seen
+
+
+def is_risky_path(path: str) -> bool:
+    risky = (
+        "auth", "permission", "tenancy", "tenant", "audit",
+        "migration", "alembic", "secret", "credential",
+    )
+    lower = path.lower()
+    return any(token in lower for token in risky)
+
+
+# Path → focus tags
+PATH_FOCUS_RULES: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = (
+    (re.compile(r"\.(svelte|tsx|jsx|vue)$|/components/|/frontend/"), ("ux", "tests")),
+    (re.compile(r"\.(test|spec)\.(t|j)sx?$|/tests?/|/__tests__/"), ("tests",)),
+    (re.compile(r"router\.py$|/api/|/routes/|/schemas/"), ("api shape", "tests")),
+    (re.compile(r"(auth|permission|authz)"), ("security", "tenancy", "audit")),
+    (re.compile(r"(tenant|tenancy)"), ("tenancy",)),
+    (re.compile(r"(audit_log|audit\.py)"), ("audit",)),
+    (re.compile(r"/migrations/|alembic"), ("migration safety", "data integrity")),
+    (re.compile(r"/models/|/schemas/.*\.py$"), ("type contracts", "data integrity")),
+    (re.compile(r"agents/.*\.md|commands/.*\.md|hooks/.*\.(sh|py)"), ("agent ux", "scope control")),
+)
+
+
+# Question keyword → focus tags
+TEXT_FOCUS_RULES: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = (
+    (re.compile(r"ownership|boundary|owner", re.I), ("ownership boundary", "clean architecture")),
+    (re.compile(r"false[- ]?positive|edge[- ]?case", re.I), ("tests", "code quality")),
+    (re.compile(r"green[- ]?light|safe to commit|merge[- ]?ready", re.I), ("reviewability",)),
+    (re.compile(r"ai[- ]?slop|generic|verbose", re.I), ("ai-slop", "comments quality")),
+    (re.compile(r"performance|complexity|latency|big[- ]?o", re.I), ("time and space complexity", "performance")),
+    (re.compile(r"ux|usability|user experience|a11y|accessib", re.I), ("ux", "accessibility")),
+    (re.compile(r"test|tdd|coverage|red test", re.I), ("tests",)),
+    (re.compile(r"api|contract|schema|consumer", re.I), ("api shape", "type contracts")),
+    (re.compile(r"audit|compliance", re.I), ("audit",)),
+    (re.compile(r"tenant|tenancy", re.I), ("tenancy",)),
+    (re.compile(r"security|authz|permission|secret", re.I), ("security",)),
+    (re.compile(r"migration|alembic|rollback", re.I), ("migration safety", "data integrity")),
+    (re.compile(r"comment|naming|name|readabil", re.I), ("comments quality", "ai-slop")),
+    (re.compile(r"architecture|coupling|module|abstraction", re.I), ("clean architecture", "maintainability")),
+)
+
+
+def infer_focus(paths: list[str], question: str, explicit: list[str]) -> list[str]:
+    inferred: list[str] = list(explicit)
+
+    def add(*tags: str) -> None:
+        for tag in tags:
+            if tag not in inferred:
+                inferred.append(tag)
+
+    for path in paths:
+        for pattern, tags in PATH_FOCUS_RULES:
+            if pattern.search(path):
+                add(*tags)
+    for pattern, tags in TEXT_FOCUS_RULES:
+        if pattern.search(question):
+            add(*tags)
+    if not inferred:
+        # Sensible default lens: maintainability + tests + AI slop is the smallest
+        # useful baseline for any review.
+        add("maintainability", "tests", "ai-slop")
+    return inferred
+
+
+def infer_skepticism(mode: str, paths: list[str], explicit: str | None) -> str:
+    if explicit:
+        return explicit
+    if mode == "deep":
+        return "blocking"
+    if any(is_risky_path(path) for path in paths):
+        return "blocking"
+    if mode in GATE_MODES:
+        return "skeptical"
+    return "skeptical"  # Default; cheap to flip via --skepticism standard.
+
+
+# ---------------------------------------------------------------------------
+# State + artifacts
+# ---------------------------------------------------------------------------
+
+
+def state_dir(root: Path, slug: str) -> Path:
+    return root / ".claude" / "peer-reviews" / slug
+
+
+def load_state(root: Path, slug: str) -> dict:
+    path = state_dir(root, slug) / "state.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def save_state(root: Path, slug: str, state: dict) -> Path:
+    directory = state_dir(root, slug)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "state.json"
+    path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def reset_state(root: Path, slug: str) -> bool:
+    path = state_dir(root, slug) / "state.json"
+    if path.exists():
+        path.unlink()
+        return True
+    return False
+
+
+def list_artifacts(root: Path, slug: str) -> list[Path]:
+    directory = state_dir(root, slug)
+    if not directory.exists():
+        return []
+    return sorted(directory.glob("iter-*.md"))
+
+
+def next_iteration(root: Path, slug: str, state: dict) -> int:
+    """Compute the next iteration number from the maximum of state and on-disk
+    artifacts. Prevents `--reset` (which clears state.json but keeps artifacts)
+    from rolling the counter back and overwriting iter-001.md.
+    """
+    from_state = int(state.get("iteration") or 0)
+    from_artifacts = 0
+    pattern = re.compile(r"iter-(\d+)\.md$")
+    for path in list_artifacts(root, slug):
+        match = pattern.search(path.name)
+        if match:
+            from_artifacts = max(from_artifacts, int(match.group(1)))
+    return max(from_state, from_artifacts) + 1
+
+
+def write_artifact(
+    root: Path,
+    slug: str,
+    iteration: int,
+    metadata: dict,
+    prompt: str,
+    output: str,
+    stderr: str,
+) -> Path:
+    """Write the iteration receipt. Uses 4-backtick fences because the prompt
+    contains 3-backtick code blocks (git diff, context excerpts) — wrapping
+    those in 3-backtick fences would close the outer block and break Markdown
+    rendering.
+    """
+    directory = state_dir(root, slug)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"iter-{iteration:03d}.md"
+    body = "\n".join(
+        [
+            f"# Peer review iteration {iteration:03d} — {slug}",
+            "",
+            "## Metadata",
+            *[f"- {key}: {value}" for key, value in metadata.items()],
+            "",
+            "## Prompt",
+            "````text",
+            prompt,
+            "````",
+            "",
+            "## Reviewer output",
+            "````text",
+            output.strip() or "[empty]",
+            "````",
+            "",
+            "## Reviewer stderr",
+            "````text",
+            stderr.strip() or "[none]",
+            "````",
+            "",
+        ]
+    )
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+# ---------------------------------------------------------------------------
+# Prompt building
+# ---------------------------------------------------------------------------
+
+
+SKEPTICISM_POLICY = {
+    "blocking": (
+        "Skepticism mode: blocking. Default to GREEN_LIGHT: no unless evidence is "
+        "strong, scope is narrow, tests prove the real bad behavior, and ownership "
+        "is clear. Treat broad rewrites, weak red-test stories, type looseness, and "
+        "AI-slop comments as blockers until resolved."
+    ),
+    "skeptical": (
+        "Skepticism mode: skeptical. Be fair, but challenge the change like a "
+        "staff engineer reviewing a risky diff. Ask whether the code can be "
+        "simpler, more typed, more local, or more maintainable. GREEN_LIGHT: yes "
+        "requires evidence, not optimism."
+    ),
+    "standard": (
+        "Skepticism mode: standard. Review constructively. Identify meaningful "
+        "risks. Still require evidence for code-specific claims."
+    ),
+}
+
+
+def read_excerpt(path: Path, max_bytes: int) -> str:
+    try:
+        raw = path.read_bytes()
+    except OSError as error:
+        return f"[could not read {path}: {error}]"
+    excerpt = raw[:max_bytes].decode("utf-8", errors="replace")
+    if len(raw) > max_bytes:
+        excerpt += f"\n\n[truncated after {max_bytes} bytes]"
+    return excerpt
+
+
+def build_git_summary(root: Path, max_bytes: int) -> str:
+    branch = run_capture(["git", "branch", "--show-current"], root) or "[detached]"
+    head = run_capture(["git", "rev-parse", "--short", "HEAD"], root) or "[unknown]"
+    status = run_capture(["git", "status", "--short"], root) or "[clean]"
+    diff_stat = run_capture(["git", "diff", "--stat", "HEAD"], root) or "[none]"
+    diff_full = run_capture(["git", "diff", "HEAD"], root)
+    if len(diff_full) > max_bytes:
+        diff_full = diff_full[:max_bytes] + f"\n\n[diff truncated after {max_bytes} bytes]"
+    return "\n".join(
+        [
+            f"Branch: {branch}",
+            f"HEAD: {head}",
+            "",
+            "git status --short:",
+            status,
+            "",
+            "git diff --stat HEAD:",
+            diff_stat,
+            "",
+            "git diff HEAD (excerpt):",
+            diff_full or "[no working-tree changes]",
+        ]
+    )
+
+
+def untracked_paths(root: Path, candidates: list[str]) -> list[str]:
+    """Return the subset of `candidates` that git treats as untracked. Empty
+    when git is unavailable or no candidates match."""
+    untracked = set(
+        line.strip()
+        for line in run_capture(
+            ["git", "ls-files", "--others", "--exclude-standard"], root
+        ).splitlines()
+        if line.strip()
+    )
+    if not untracked:
+        return []
+    return [p for p in candidates if p in untracked]
+
+
+def build_untracked_block(
+    root: Path, paths: list[str], per_file_bytes: int
+) -> str:
+    """Inline bounded excerpts for untracked files so the reviewer sees their
+    contents (git diff HEAD does not include untracked files). Returns the
+    sentinel `[none]` when there are no untracked candidates so the prompt
+    section stays present and parseable."""
+    untracked = untracked_paths(root, paths)
+    if not untracked:
+        return "[none]"
+    sections: list[str] = []
+    for relative in untracked:
+        absolute = (root / relative).resolve()
+        try:
+            absolute.relative_to(root.resolve())
+        except ValueError:
+            continue
+        sections.extend(
+            [
+                f"### {relative}",
+                "```text",
+                read_excerpt(absolute, per_file_bytes) if absolute.exists() else "[file vanished]",
+                "```",
+                "",
+            ]
+        )
+    return "\n".join(sections).rstrip() if sections else "[none]"
+
+
+def previous_blockers_block(state: dict) -> str:
+    blockers = state.get("last_blockers") or []
+    verdict = state.get("last_verdict")
+    if not blockers and not verdict:
+        return "[no prior iteration]"
+    lines = []
+    if verdict:
+        lines.append(f"Previous verdict: {verdict}")
+    if state.get("last_min_score") is not None:
+        lines.append(f"Previous MIN_SCORE: {state['last_min_score']}")
+    if blockers:
+        lines.append("Previous blockers:")
+        for index, blocker in enumerate(blockers, 1):
+            lines.append(f"  {index}. {blocker}")
+    return "\n".join(lines)
+
+
+def build_prompt(args: argparse.Namespace, root: Path, state: dict) -> str:
+    paths_block = "\n".join(f"- {path}" for path in args.paths) or "- [no paths inferred]"
+    focus_block = "\n".join(f"- {focus}" for focus in args.focus) or "- maintainability"
+    git_block = build_git_summary(root, args.diff_bytes) if args.include_git else "[git summary disabled]"
+    untracked_block = build_untracked_block(root, list(args.paths), args.context_bytes)
+    context_block = "[none]"
+    if args.context_files:
+        sections: list[str] = []
+        for raw in args.context_files:
+            path = Path(raw)
+            sections.extend(
+                [
+                    f"### {raw}",
+                    "```text",
+                    read_excerpt(path, args.context_bytes) if path.exists() else f"[missing {raw}]",
+                    "```",
+                    "",
+                ]
+            )
+        context_block = "\n".join(sections).rstrip()
+
+    # Trust args.iteration (computed by next_iteration() in main, which respects
+    # both state and on-disk artifacts). Falling back to state-only here would
+    # let the prompt say "Iteration: 1" while write_artifact wrote iter-002.md
+    # after a --reset that kept the artifacts.
+    iteration = getattr(args, "iteration", None) or (state.get("iteration", 0) + 1)
+    prior = previous_blockers_block(state)
+
+    return f"""You are an external, skeptical peer reviewer for the Eneo codebase.
+Your job is not to be agreeable. Your job is to improve long-term code quality.
+
+Posture:
+- Step back: what problem is the developer actually solving?
+- Could this be done in a cleaner, simpler, more durable way?
+- Does this improve maintainability, or just move complexity?
+- Challenge speculative abstractions, vague names, dict-shaped mechanics, and
+  comments that restate code.
+- Prefer one canonical owner, typed contracts, narrow modules, high-signal tests,
+  and reviewable diffs.
+- Review only. Do not edit files.
+- For code-specific claims include file:line evidence or say the claim is
+  unverified.
+
+{SKEPTICISM_POLICY[args.skepticism]}
+
+No-green rules (mode-aware):
+- In `plan` mode, GREEN_LIGHT: yes requires a credible TEST PLAN and a clear
+  ownership boundary; implemented tests are NOT required at this stage.
+- In `code` / `green` / `ready` / `deep` modes, GREEN_LIGHT: yes requires
+  meaningful implemented tests for the claimed behavior, OR an explicit reason
+  tests are unnecessary for this slice.
+- In any mode:
+  - No GREEN_LIGHT: yes if the change patches a symptom while ownership stays
+    worse.
+  - No GREEN_LIGHT: yes if comments look like AI slop (verbose "what"
+    comments, generic TODOs, tutorial prose, claims not enforced by code).
+  - No GREEN_LIGHT: yes if strict type contracts are weakened without a
+    boundary reason.
+  - No GREEN_LIGHT: yes merely because tests pass.
+
+Session context:
+- Slug: {args.slug}
+- Iteration: {iteration}
+- Mode: {args.mode}
+- Skepticism: {args.skepticism}
+- Required minimum score (when gated): {args.required_min_score}
+
+Review lenses:
+{focus_block}
+
+Paths under review:
+{paths_block}
+
+Context files:
+{context_block}
+
+Git summary:
+```text
+{git_block}
+```
+
+Untracked file excerpts (these are NOT in git diff because they are not
+staged/tracked yet — read them as if they were the diff):
+{untracked_block}
+
+Prior iteration (verify these were actually addressed; do not give green if any
+remain):
+{prior}
+
+Developer question:
+{args.question or "Review the current diff. Challenge whether the change is solving the root problem or patching a symptom."}
+
+Required response format — emit these literal headers exactly so the runner can
+parse them:
+
+VERDICT: green | changes_required | blocked
+GREEN_LIGHT: yes | no
+MIN_SCORE: 1-10
+
+## Executive Gate
+One paragraph: proceed, revise, narrow scope, or stop.
+
+## Blockers
+List blockers as a numbered list, one per line. Say "none" only if truly none.
+
+## Findings
+P0/P1/P2/P3 issues with file:line evidence where applicable.
+
+## Cleaner Design Challenge
+Could this be done in a cleaner way with a better ownership boundary?
+
+## Tests & Verification
+Would the tests fail on the real bad behavior? What is missing?
+
+## Highest ROI Next Action
+The smallest change that most improves quality before commit.
+
+## Confidence
+high / medium / low, with the reason.
+"""
+
+
+# ---------------------------------------------------------------------------
+# Provider invocation
+# ---------------------------------------------------------------------------
+
+
+def codex_available() -> bool:
+    return shutil.which("codex") is not None
+
+
+def claude_available() -> bool:
+    return shutil.which("claude") is not None
+
+
+def resolve_provider(requested: str) -> str:
+    if requested == "codex":
+        return "codex" if codex_available() else "missing-codex"
+    if requested == "claude":
+        return "claude-fresh" if claude_available() else "missing-claude"
+    # auto
+    if codex_available():
+        return "codex"
+    if claude_available():
+        return "claude-fresh"
+    return "skipped-no-reviewer"
+
+
+CODEX_THREAD_ID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
+
+
+def parse_codex_jsonl(stdout: str) -> tuple[str | None, str]:
+    """Extract (thread_id, concatenated agent_message text) from `codex exec
+    --json` output. Tolerant of unknown event types and malformed lines.
+    """
+    thread_id: str | None = None
+    parts: list[str] = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "thread.started":
+            candidate = event.get("thread_id")
+            if isinstance(candidate, str) and CODEX_THREAD_ID_RE.match(candidate):
+                thread_id = candidate
+        elif event.get("type") == "item.completed":
+            item = event.get("item") or {}
+            if isinstance(item, dict) and item.get("type") == "agent_message":
+                text = item.get("text")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text.strip())
+    return thread_id, "\n\n".join(parts)
+
+
+def run_codex(
+    prompt: str,
+    *,
+    root: Path,
+    extra_dirs: list[str],
+    timeout_seconds: int,
+    resume_session_id: str | None,
+) -> tuple[int, str, str, str | None]:
+    """Invoke codex. Returns (exit_code, parsed_text, stderr, new_thread_id).
+
+    - When `resume_session_id` is provided, runs `codex exec resume <UUID>` so
+      the model resumes that exact thread (not `--last`, which is fragile
+      across interleaved codex calls).
+    - Otherwise runs `codex exec` fresh and captures the new thread UUID from
+      the JSON event stream so the next iteration can resume it precisely.
+    `codex exec resume` does not accept `--sandbox`, `-C`, or `--add-dir`; the
+    sandbox + add-dir flags are inherited from the original session.
+    """
+    if resume_session_id:
+        cmd = [
+            "codex", "exec", "resume", resume_session_id,
+            "--skip-git-repo-check", "--json",
+        ]
+    else:
+        cmd = [
+            "codex", "exec",
+            "--skip-git-repo-check", "--sandbox", "read-only", "--json",
+        ]
+        for extra in extra_dirs:
+            cmd.extend(["--add-dir", extra])
+    if DEFAULT_CODEX_MODEL:
+        cmd.extend(["-c", f"model={DEFAULT_CODEX_MODEL}"])
+    if DEFAULT_CODEX_EFFORT:
+        cmd.extend(["-c", f"model_reasoning_effort={DEFAULT_CODEX_EFFORT}"])
+    cmd.append("-")  # read prompt from stdin
+    try:
+        result = subprocess.run(
+            cmd,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+            cwd=str(root),
+        )
+    except subprocess.TimeoutExpired:
+        return 124, "", f"codex timed out after {timeout_seconds}s", None
+    new_thread_id, parsed_text = parse_codex_jsonl(result.stdout)
+    # If JSON parsing produced nothing usable (e.g. codex errored before any
+    # event), fall back to raw stdout so the developer can still see context.
+    text = parsed_text if parsed_text.strip() else result.stdout
+    return result.returncode, text, result.stderr, new_thread_id
+
+
+def run_claude_fresh(
+    prompt: str,
+    *,
+    root: Path,
+    session_name: str,
+    extra_dirs: list[str],
+    timeout_seconds: int,
+    resume: bool,
+) -> tuple[int, str, str]:
+    cmd: list[str] = ["claude", "-p", prompt, "--output-format", "text"]
+    cmd.extend(["--permission-mode", "default"])
+    if resume:
+        cmd.extend(["--resume", session_name])
+    else:
+        cmd.extend(["--name", session_name])
+    if DEFAULT_CLAUDE_MODEL:
+        cmd.extend(["--model", DEFAULT_CLAUDE_MODEL])
+    if DEFAULT_CLAUDE_EFFORT:
+        cmd.extend(["--effort", DEFAULT_CLAUDE_EFFORT])
+    if DEFAULT_CLAUDE_TOOLS:
+        cmd.extend(["--tools", DEFAULT_CLAUDE_TOOLS])
+    for extra in extra_dirs:
+        cmd.extend(["--add-dir", extra])
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+            cwd=str(root),
+        )
+    except subprocess.TimeoutExpired:
+        return 124, "", f"claude timed out after {timeout_seconds}s"
+    return result.returncode, result.stdout, result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Output parsing
+# ---------------------------------------------------------------------------
+
+
+VERDICT_RE = re.compile(r"(?im)^VERDICT:\s*(green|changes_required|blocked)\s*$")
+GREEN_RE = re.compile(r"(?im)^GREEN_LIGHT:\s*(yes|no)\s*$")
+# Accept `MIN_SCORE: 8` and `MIN_SCORE: 8/10` — many models emit the latter
+# despite the prompt asking for a bare integer.
+SCORE_RE = re.compile(r"(?im)^MIN_SCORE:\s*(\d{1,2})(?:\s*/\s*10)?\s*$")
+
+
+def parse_verdict(output: str) -> str | None:
+    match = VERDICT_RE.search(output)
+    return match.group(1).lower() if match else None
+
+
+def parse_green(output: str) -> str | None:
+    match = GREEN_RE.search(output)
+    return match.group(1).lower() if match else None
+
+
+def parse_min_score(output: str) -> int | None:
+    match = SCORE_RE.search(output)
+    if not match:
+        return None
+    value = int(match.group(1))
+    return value if 1 <= value <= 10 else None
+
+
+EMPTY_BLOCKER_TOKENS = {"none", "no blockers", "n/a", "na"}
+
+
+def parse_blockers(output: str) -> list[str]:
+    """Pull the bulleted/numbered items under a `## Blockers` header.
+
+    Treats `none`, `- none`, `1. none`, `No blockers.`, `N/A`, etc. as an
+    empty list. Models emit those phrasings frequently and we should not
+    let them pollute state.json or the next iteration's prompt.
+    """
+    match = re.search(r"(?im)^##\s*Blockers\s*$", output)
+    if not match:
+        return []
+    rest = output[match.end():]
+    next_header = re.search(r"(?im)^##\s+\S", rest)
+    section = rest[: next_header.start()] if next_header else rest
+    blockers: list[str] = []
+    for line in section.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        cleaned = re.sub(r"^(?:[-*]|\d+[.)])\s+", "", line).strip().rstrip(".")
+        if not cleaned:
+            continue
+        if cleaned.lower() in EMPTY_BLOCKER_TOKENS:
+            return []
+        blockers.append(cleaned)
+    return blockers[:5]
+
+
+# ---------------------------------------------------------------------------
+# Output rendering
+# ---------------------------------------------------------------------------
+
+
+def reviewer_label(provider: str) -> tuple[str, str]:
+    if provider == "codex":
+        return ("codex", f"external (codex CLI{', ' + DEFAULT_CODEX_MODEL if DEFAULT_CODEX_MODEL else ''})")
+    if provider == "claude-fresh":
+        return ("claude-fresh", "fresh same-model session — not external model diversity")
+    return (provider, "unknown")
+
+
+def review_cleared(
+    verdict: str | None,
+    green: str | None,
+    score: int | None,
+    blockers: list[str],
+    required_min_score: int,
+) -> bool:
+    """A review is only `cleared` when EVERY signal agrees: green verdict,
+    explicit GREEN_LIGHT: yes, score at or above the floor, and no leftover
+    blockers. This guards against contradictory output like
+    `VERDICT: green / GREEN_LIGHT: no` from being treated as a pass.
+    """
+    return (
+        verdict == "green"
+        and green == "yes"
+        and score is not None
+        and score >= required_min_score
+        and not blockers
+    )
+
+
+def decision_line(
+    verdict: str | None,
+    green: str | None,
+    score: int | None,
+    blockers: list[str],
+    required_min_score: int,
+    contract_ok: bool,
+) -> str:
+    if not contract_ok:
+        return "Decision: reviewer output did not match the contract — re-run or read the artifact"
+    if review_cleared(verdict, green, score, blockers, required_min_score):
+        return "Decision: reviewer cleared this slice"
+    if verdict == "blocked":
+        return "Decision: blocked — do not proceed"
+    if verdict == "changes_required" or blockers or green == "no":
+        return "Decision: revise before commit"
+    return "Decision: unclear (see artifact)"
+
+
+def print_summary(
+    *,
+    slug: str,
+    iteration: int,
+    provider: str,
+    mode: str,
+    skepticism: str,
+    output: str,
+    artifact: Path,
+    next_hint: str,
+    required_min_score: int,
+) -> None:
+    name, independence = reviewer_label(provider)
+    verdict = parse_verdict(output)
+    green = parse_green(output)
+    score = parse_min_score(output)
+    blockers = parse_blockers(output)
+    contract_ok = verdict is not None and green is not None and score is not None
+    print(f"Peer review iteration {iteration:03d} — {slug}")
+    print()
+    print(decision_line(verdict, green, score, blockers, required_min_score, contract_ok))
+    print()
+    print(f"REVIEWER: {name}")
+    print(f"INDEPENDENCE: {independence}")
+    print(f"MODE: {mode}")
+    print(f"SKEPTICISM: {skepticism}")
+    print(f"VERDICT: {verdict or '?'}")
+    print(f"GREEN_LIGHT: {green or '?'}")
+    print(f"MIN_SCORE: {score if score is not None else '?'}")
+    if not contract_ok:
+        print("CONTRACT: failed — reviewer did not emit the required headers")
+    if blockers:
+        print()
+        print("Blockers:")
+        for index, blocker in enumerate(blockers, 1):
+            print(f"  {index}. {blocker}")
+    elif verdict == "green":
+        print()
+        print("Blockers: none")
+    print()
+    print(f"Full review: {artifact}")
+    if next_hint:
+        print(f"Next: {next_hint}")
+
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="eneo-peer-review",
+        description=(
+            "On-demand peer review for the Eneo harness. Plain-language input, "
+            "smart inference, resumable session memory. Codex if available, "
+            "else fresh-context Claude, else SKIPPED."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  eneo-peer-review\n"
+            "  eneo-peer-review \"Is this the right ownership boundary?\"\n"
+            "  eneo-peer-review plan \"Should I implement this slice as scoped?\"\n"
+            "  eneo-peer-review green\n"
+            "  eneo-peer-review deep \"Challenge architecture, tests, API shape.\"\n"
+            "  eneo-peer-review show\n"
+            "\n"
+            "Modes: plan, code, green, ready, deep, resume, show, help.\n"
+            "  green / ready gate the exit code; deep is advisory only.\n"
+            "Provider order: codex first, claude-fresh second, SKIPPED otherwise.\n"
+            "All ENEO_PEER_REVIEW_* env vars override defaults.\n"
+        ),
+    )
+    parser.add_argument(
+        "positional",
+        nargs="*",
+        help="Optional [mode] [\"question\"]. First word is treated as a mode if it matches a known mode; otherwise everything is the question.",
+    )
+    parser.add_argument("--reviewer", choices=["auto", "codex", "claude"], default="auto")
+    parser.add_argument(
+        "--skepticism",
+        choices=["standard", "skeptical", "blocking"],
+        default=None,
+        help="Override inferred skepticism.",
+    )
+    parser.add_argument("--path", action="append", default=[], help="Repeatable. Skip git inference.")
+    parser.add_argument("--focus", action="append", default=[], help="Repeatable. Adds to inferred focus list.")
+    parser.add_argument("--context-file", action="append", default=[], help="Repeatable.")
+    parser.add_argument("--require-green", action="store_true")
+    parser.add_argument("--required-min-score", type=int, default=DEFAULT_REQUIRED_MIN_SCORE)
+    parser.add_argument("--new", action="store_true", help="Force a fresh reviewer session.")
+    parser.add_argument("--reset", action="store_true", help="Clear state for the current slug, keep artifacts.")
+    parser.add_argument("--full", action="store_true", help="Print the full review, not the compact summary.")
+    parser.add_argument("--no-git-summary", action="store_true")
+    parser.add_argument("--diff-bytes", type=int, default=DEFAULT_DIFF_BYTES)
+    parser.add_argument("--context-bytes", type=int, default=DEFAULT_CONTEXT_BYTES)
+    parser.add_argument("--max-paths", type=int, default=DEFAULT_MAX_INFERRED_PATHS)
+    parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument("--slug", default=None, help="Override the inferred slug.")
+    return parser.parse_args(argv)
+
+
+def split_mode_and_question(positional: list[str]) -> tuple[str, str]:
+    if not positional:
+        return ("code", "")
+    first = positional[0].lower()
+    if first in KNOWN_MODES:
+        return (first, " ".join(positional[1:]).strip())
+    return ("code", " ".join(positional).strip())
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+SKIP_HINT = (
+    "Install codex (https://github.com/openai/codex) for external-model review,\n"
+    "or run this command with `--reviewer claude` for fresh-context Claude review.\n"
+    "Set ENEO_PEER_REVIEW_CODEX_MODEL / ENEO_PEER_REVIEW_CLAUDE_MODEL to tune."
+)
+
+
+REVIEWER_SECTION_RE = re.compile(
+    r"## Reviewer output\s*\n`{3,4}text\n(.*?)\n`{3,4}", re.DOTALL
+)
+
+
+def show_artifact(root: Path, slug: str, full: bool) -> int:
+    """Print the latest artifact. By default print only the Reviewer output
+    section so the main session does not get bloated with the full prompt and
+    diff. `full=True` (or `--full`) prints the whole artifact.
+    """
+    artifacts = list_artifacts(root, slug)
+    if not artifacts:
+        print(f"No peer-review artifacts for slug `{slug}`.", file=sys.stderr)
+        return 1
+    latest = artifacts[-1]
+    text = latest.read_text(encoding="utf-8")
+    if full:
+        print(text)
+        return 0
+    match = REVIEWER_SECTION_RE.search(text)
+    if match:
+        print(f"# {latest.name} — reviewer output only (use --full for prompt + diff)")
+        print()
+        print(match.group(1).strip())
+    else:
+        # Fall back to full text if the artifact format is unexpected.
+        print(text)
+    return 0
+
+
+MODE_DEFAULT_QUESTION = {
+    "plan": "Review the proposed plan/scope before implementation. Is this the smallest safe slice? Where does ownership belong? Does the plan have a credible TEST PLAN — implemented tests are not required at this stage.",
+    "code": "Review the current diff. Challenge whether the change is solving the root problem or patching a symptom.",
+    "green": "Verify whether the previous blockers were actually fixed. Give GREEN_LIGHT: yes only if this is safe to continue or commit.",
+    "ready": "Verify whether the previous blockers were actually fixed. Give GREEN_LIGHT: yes only if this is safe to continue or commit.",
+    "deep": "Run a blocking-skepticism review. Challenge architecture, false-positive risk, TDD coverage, API shape, reviewability, and AI slop. Advisory only — do not gate.",
+    "resume": "Resume the prior review. Did the developer address the previous concerns? What still blocks green?",
+}
+
+
+def resolve_extra_dirs(
+    paths: Iterable[str], context_files: Iterable[str], root: Path
+) -> list[str]:
+    """Collect parent directories of any --path / --context-file that lives
+    outside the repo root, so the reviewer CLI can read them. File paths
+    contribute their parent (the older runner used the same rule); directories
+    contribute themselves.
+    """
+    root_real = root.resolve()
+    extras: list[str] = []
+    for raw in (*paths, *context_files):
+        try:
+            absolute = Path(raw).resolve()
+        except OSError:
+            continue
+        directory = absolute if absolute.is_dir() else absolute.parent
+        try:
+            directory.relative_to(root_real)
+            continue
+        except ValueError:
+            pass
+        value = str(directory)
+        if value not in extras:
+            extras.append(value)
+    return extras
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv if argv is not None else sys.argv[1:])
+    mode, question = split_mode_and_question(args.positional)
+
+    if mode == "help":
+        # argparse prints help to stdout for -h; mirror that here.
+        parse_args(["-h"])
+        return 0
+
+    args.mode = mode
+    # Apply mode-specific default questions only when the developer didn't
+    # supply one — explicit input always wins.
+    args.question = question or MODE_DEFAULT_QUESTION.get(mode, "")
+
+    # `green` and `ready` are the memorable gates. They auto-enable
+    # --require-green so users don't need to remember the flag. `deep` is a
+    # stronger ADVISORY review — it bumps skepticism but does NOT gate, so
+    # asking for a deeper opinion never punishes the developer.
+    if mode in GATE_MODES:
+        args.require_green = True
+
+    root = repo_root()
+    slug = args.slug or infer_slug(root)
+    args.slug = slug
+
+    if args.reset:
+        cleared = reset_state(root, slug)
+        msg = "cleared" if cleared else "no state to clear"
+        print(f"State for `{slug}`: {msg}.")
+        if mode in ("plan", "code", "green", "deep", "resume"):
+            print("Run again without --reset to start a fresh review.")
+        return 0
+
+    if mode == "show":
+        return show_artifact(root, slug, args.full)
+
+    # Path inference.
+    paths = list(args.path) if args.path else infer_paths(root, args.max_paths)
+    args.paths = paths
+
+    # Focus inference.
+    args.focus = infer_focus(paths, args.question, list(args.focus))
+
+    # Skepticism.
+    args.skepticism = infer_skepticism(mode, paths, args.skepticism)
+
+    # Provider resolution.
+    provider = resolve_provider(args.reviewer)
+    if provider.startswith("missing-") or provider == "skipped-no-reviewer":
+        if provider == "missing-codex":
+            reason = "codex cli requested but not installed"
+        elif provider == "missing-claude":
+            reason = "claude cli requested but not installed"
+        else:
+            reason = "neither codex nor claude is installed"
+        print(f"SKIPPED|{reason}")
+        print(SKIP_HINT)
+        return 0
+
+    # State.
+    state = {} if args.new else load_state(root, slug)
+    iteration = next_iteration(root, slug, state)
+    args.iteration = iteration
+
+    # Resume the reviewer's prior session for both providers — but always by
+    # explicit session id stored in state, never via codex `--last` (which is
+    # global and can target an unrelated session).
+    can_resume = (
+        not args.new
+        and bool(state)
+        and state.get("provider") == provider
+    )
+    resume_codex_id: str | None = None
+    resume_claude = False
+    if can_resume:
+        if provider == "codex":
+            candidate = state.get("provider_session_id")
+            if isinstance(candidate, str) and CODEX_THREAD_ID_RE.match(candidate):
+                resume_codex_id = candidate
+        elif provider == "claude-fresh":
+            resume_claude = True
+
+    # Argparse storage for prompt builder.
+    args.context_files = args.context_file
+    args.include_git = not args.no_git_summary
+
+    prompt = build_prompt(args, root, state)
+    extra_dirs = resolve_extra_dirs(paths, args.context_files, root)
+
+    started_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    provider_session_id: str | None = None
+    resume_fallback_note = ""
+    if provider == "codex":
+        exit_code, output, stderr, new_thread_id = run_codex(
+            prompt,
+            root=root,
+            extra_dirs=extra_dirs,
+            timeout_seconds=args.timeout_seconds,
+            resume_session_id=resume_codex_id,
+        )
+        # Resume fail-safe: if `codex exec resume <id>` failed (session evicted,
+        # corrupted state, codex CLI version drift), retry FRESH exactly once.
+        # We never fall back to `--last` because that is unsafe across
+        # interleaved codex calls. Iteration continuity still holds because the
+        # prompt already inlines previous blockers from state.json.
+        if (
+            resume_codex_id
+            and exit_code != 0
+            and exit_code != 124  # not a timeout
+        ):
+            resume_fallback_note = (
+                f"codex resume by id failed (exit {exit_code}); retried fresh"
+            )
+            exit_code, output, stderr, new_thread_id = run_codex(
+                prompt,
+                root=root,
+                extra_dirs=extra_dirs,
+                timeout_seconds=args.timeout_seconds,
+                resume_session_id=None,
+            )
+        # Prefer the freshly-emitted thread_id; fall back to the resumed id so
+        # subsequent iterations can keep resuming the same thread.
+        provider_session_id = new_thread_id or resume_codex_id
+        resume_marker: str | bool = resume_codex_id or False
+    else:  # claude-fresh
+        session_name = f"eneo-peer-{slug}"
+        exit_code, claude_stdout, stderr = run_claude_fresh(
+            prompt,
+            root=root,
+            session_name=session_name,
+            extra_dirs=extra_dirs,
+            timeout_seconds=args.timeout_seconds,
+            resume=resume_claude,
+        )
+        output = claude_stdout if claude_stdout.strip() else stderr
+        provider_session_id = session_name
+        resume_marker = resume_claude
+
+    metadata = {
+        "slug": slug,
+        "iteration": iteration,
+        "mode": mode,
+        "skepticism": args.skepticism,
+        "provider": provider,
+        "provider_session_id": provider_session_id or "[none]",
+        "resume": resume_marker,
+        "exit_code": exit_code,
+        "started_utc": started_utc,
+        "paths": ", ".join(paths) if paths else "[none]",
+        "focus": ", ".join(args.focus),
+    }
+    if resume_fallback_note:
+        metadata["resume_fallback"] = resume_fallback_note
+    artifact = write_artifact(root, slug, iteration, metadata, prompt, output, stderr)
+
+    verdict = parse_verdict(output)
+    green = parse_green(output)
+    score = parse_min_score(output)
+    contract_ok = verdict is not None and green is not None and score is not None
+
+    cleared = review_cleared(verdict, green, score, blockers, args.required_min_score)
+    next_hint = ""
+    if exit_code == 0:
+        if not contract_ok:
+            next_hint = "/eneo-peer-review --new  (reviewer output did not match the contract)"
+        elif cleared:
+            next_hint = "/eneo-commit  (the reviewer cleared this slice)"
+        else:
+            next_hint = "/eneo-peer-review ready  (after fixing blockers)"
+
+    if args.full or exit_code != 0:
+        print(output.rstrip())
+        print()
+        print(f"Artifact: {artifact}")
+    else:
+        print_summary(
+            slug=slug,
+            iteration=iteration,
+            provider=provider,
+            mode=mode,
+            skepticism=args.skepticism,
+            output=output,
+            artifact=artifact,
+            next_hint=next_hint,
+            required_min_score=args.required_min_score,
+        )
+
+    save_state(
+        root,
+        slug,
+        {
+            "slug": slug,
+            "provider": provider,
+            "provider_session_id": provider_session_id,
+            "iteration": iteration,
+            "last_verdict": verdict,
+            "last_green_light": green,
+            "last_min_score": score,
+            "last_blockers": parse_blockers(output),
+            "last_artifact": str(artifact),
+            "last_run_utc": started_utc,
+        },
+    )
+
+    if exit_code != 0:
+        return exit_code
+
+    if args.require_green:
+        if not contract_ok:
+            print(
+                "\nGreen-light gate failed: reviewer output did not match the "
+                "required contract (VERDICT / GREEN_LIGHT / MIN_SCORE).",
+                file=sys.stderr,
+            )
+            return 2
+        if not review_cleared(verdict, green, score, blockers, args.required_min_score):
+            print(
+                f"\nGreen-light gate failed: requires VERDICT green + GREEN_LIGHT yes + "
+                f"MIN_SCORE >= {args.required_min_score} + no remaining blockers.",
+                file=sys.stderr,
+            )
+            return 2
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
