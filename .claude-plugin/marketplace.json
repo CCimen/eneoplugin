@@ -12,7 +12,7 @@
     },
     {
       "name": "eneo-standards",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "source": "./plugins/eneo-standards",
       "description": "Hooks, validators, helper binaries, and status line for the Eneo harness."
     },
