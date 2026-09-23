@@ -25,7 +25,11 @@ if echo "$CMD" | grep -qE '(sed[[:space:]]+-i|tee|>>?|cat[[:space:]]*>)[^|]*\.cl
   exit 2
 fi
 
-if echo "$CMD" | grep -qE '(sed[[:space:]]+-i|tee|>>?|cat[[:space:]]*>)[^|]*(/|^|[[:space:]])(\.env($|\.)|.*\.env(\.[^[:space:]]+)?($|[[:space:]])|bun\.lockb|bun\.lock|uv\.lock|package-lock\.json|pnpm-lock\.yaml|Cargo\.lock|poetry\.lock|\.claude/ratchet/[^[:space:]]+\.json)'; then
+# Env templates (.env.example etc.) are the agent's sanctioned target, and code tokens such as
+# process.env.FOO or import.meta.env are not files; strip both before matching so a heredoc that
+# mentions them, or an append to .env.example, is not mistaken for a write into a secret file.
+CMD_FOR_ENV_CHECK=$(echo "$CMD" | sed -E 's/\.env\.(example|template|sample|dist)//g; s/(process|import\.meta|Bun|Deno)\.env//g')
+if echo "$CMD_FOR_ENV_CHECK" | grep -qE '(sed[[:space:]]+-i|tee|>>?|cat[[:space:]]*>)[^|]*(/|^|[[:space:]])(\.env($|\.)|.*\.env(\.[^[:space:]]+)?($|[[:space:]])|bun\.lockb|bun\.lock|uv\.lock|package-lock\.json|pnpm-lock\.yaml|Cargo\.lock|poetry\.lock|\.claude/ratchet/[^[:space:]]+\.json)'; then
   {
     echo "✗ Blocked: bash write into a protected file."
     echo "  Rule: .env files, lockfiles, and ratchet baselines are owned by the developer, package manager, or commit hooks — not ad hoc bash redirects."

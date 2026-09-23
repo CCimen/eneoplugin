@@ -305,6 +305,35 @@ All checks pass.
         self.assertEqual(result.returncode, 2)
         self.assertIn("eneo_phase_set", result.stderr)
 
+    def test_protect_files_blocks_env_but_allows_templates(self) -> None:
+        script = REPO_ROOT / "plugins" / "eneo-standards" / "hooks" / "protect-files.sh"
+
+        for blocked in ("/tmp/demo/.env", "/tmp/demo/.env.local", "/tmp/demo/.env.production"):
+            result = run_shell_script(script, {"tool_input": {"file_path": blocked}})
+            self.assertEqual(result.returncode, 2, blocked)
+            self.assertIn(".env.example", result.stderr)
+
+        for allowed in ("/tmp/demo/.env.example", "/tmp/demo/.env.template", "/tmp/demo/backend/.env.example"):
+            result = run_shell_script(script, {"tool_input": {"file_path": allowed}})
+            self.assertEqual(result.returncode, 0, allowed)
+
+    def test_bash_firewall_env_check_ignores_templates_and_code_tokens(self) -> None:
+        root = self.make_repo_root()
+        script = REPO_ROOT / "plugins" / "eneo-standards" / "hooks" / "bash-firewall.sh"
+        env = {"CLAUDE_PROJECT_DIR": str(root)}
+
+        for blocked in ("echo SECRET=1 >> .env", "echo x > env_backend.env"):
+            result = run_shell_script(script, {"tool_input": {"command": blocked}}, env=env)
+            self.assertEqual(result.returncode, 2, blocked)
+            self.assertIn("protected file", result.stderr)
+
+        for allowed in (
+            "echo '# NEW_VAR=' >> .env.example",
+            "cat > src/config.ts <<'EOF'\nexport const url = process.env.DATABASE_URL;\nEOF",
+        ):
+            result = run_shell_script(script, {"tool_input": {"command": allowed}}, env=env)
+            self.assertEqual(result.returncode, 0, allowed)
+
     def test_bash_firewall_blocks_phase_file_redirects(self) -> None:
         root = self.make_repo_root()
         (root / ".claude" / "state" / "phase").write_text("GREEN\n", encoding="utf-8")

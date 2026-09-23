@@ -12,6 +12,10 @@ if [[ -z "$FILE" ]]; then
 fi
 
 case "$FILE" in
+  # Templates hold placeholders, not secrets; the Fix line below tells the agent to edit them.
+  *.env.example|*.env.template|*.env.sample|*.env.dist|*.env.*.example|*.env.*.template)
+    exit 0
+    ;;
   */.env|*/.env.*|*.env.local|*.env.production|*.env.staging)
     {
       echo "Blocked: .env files contain secrets and must not be edited by the agent."
