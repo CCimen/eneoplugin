@@ -19,6 +19,7 @@
 /plugin install eneo-standards@eneoplugin
 /plugin install eneo-findings@eneoplugin
 /plugin install eneo-review@eneoplugin   # optional
+/plugin install eneo-dev-db@eneoplugin   # optional
 /reload-plugins
 ```
 
@@ -39,5 +40,6 @@ That verifies:
 ## Notes
 
 - `eneo-review` is optional because it is only used on risky changes
+- `eneo-dev-db` is optional: install it if you want every git branch to own its dev database
 - `eneo-findings` needs GitHub project access if you plan to create findings
 - `--plugin-dir` is the best way to iterate locally during development

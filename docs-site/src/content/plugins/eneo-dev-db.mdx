@@ -1,0 +1,88 @@
+# eneo-dev-db
+
+The dev-db plugin gives every git branch its own development database in the devcontainer Postgres, and adds a simulator for rehearsing migrations between releases. It is optional and independent of the workflow plugins.
+
+## The problem it solves
+
+One shared dev database follows whichever branch migrated it last. Switch to a branch with different migrations and you get `UndefinedColumn` errors, alembic asking for a downgrade it cannot find, or data that belongs to other work.
+
+With this plugin each branch owns a real database named `eneo_<sanitized-branch>`:
+
+- a new branch's database is cloned once from the branch it was created from
+- switching branches only repoints `POSTGRES_DB` in `backend/.env`
+- nothing is copied on a switch, so no branch's data is ever overwritten
+
+It ships as a plugin rather than as a script in the Eneo repo because a tracked script only exists on the branches that carry it. The plugin works on every branch.
+
+## What you can run
+
+| What | When to use it |
+|---|---|
+| `/eneo-dev-db:dev-db` | Ask Claude to check or fix which database the current branch is wired to. |
+| `eneo-dev-db` | The tool behind the command. Also usable from your own terminal. |
+| `eneo-mig-sim` | Run any git ref's alembic against a throwaway database. |
+
+Claude also loads the `eneo-dev-db` skill on its own when a branch switch leaves the schema out of step, for example on `relation does not exist` errors.
+
+## The commands you'll actually use
+
+```bash
+eneo-dev-db status     # branch, database, size, base branch, alembic revision
+eneo-dev-db switch     # create if needed, repoint .env, alembic upgrade head
+eneo-dev-db prune      # list databases whose branch is gone (--yes to drop)
+eneo-dev-db fork NAME  # scratch copy before something destructive
+```
+
+Run them from anywhere inside the Eneo checkout, on the host or inside the devcontainer. Containers are discovered from the running compose project.
+
+After a `switch`, restart the backend and worker. The tool prints the command.
+
+## First run
+
+A fresh checkout has `POSTGRES_DB=postgres`. Check out `develop` and run `eneo-dev-db switch`. The tool offers to seed `eneo_develop` from the database you already have, so existing data carries over. After that, new branches clone from the branch they were created from.
+
+## Which branch a new database is cloned from
+
+First match wins:
+
+1. `--base <branch>`
+2. `git config branch.<name>.eneoDbBase`
+3. the branch this one was created from, per its reflog
+4. the nearest ancestor branch that already has a database
+5. `develop`
+
+The choice is recorded in git config, so it stays stable and can be corrected later.
+
+## Why Claude goes through the tool
+
+`backend/.env` is protected by `eneo-standards`: Claude cannot read it, edit it, or redirect into it. `eneo-dev-db` owns the one line that has to change, `POSTGRES_DB`, and `status` is how Claude sees which database is live. That keeps the secret-file protection intact while still letting the database follow the branch.
+
+## Rehearsing migrations
+
+`eneo-mig-sim` extracts a git ref's `backend/` into `.mig-sim/` in the checkout and runs that ref's alembic against an `eneo_migsim_*` scratch database. No branch database and no `backend/.env` is touched.
+
+```bash
+eneo-mig-sim create broken
+eneo-mig-sim alembic broken v2.0.1 upgrade head
+eneo-mig-sim alembic broken v2.1.0-rc.1 upgrade head
+eneo-mig-sim dump broken > broken.sql
+eneo-mig-sim drop broken
+```
+
+Use tags or commit shas as refs. Extracted trees are cached by ref name, so a branch name or `HEAD` keeps running the tree from its first extraction.
+
+`check-v21-upgrade` is a worked example: it validates every upgrade path in the v2.1 migration-repair guidance and asserts that a repaired database ends up with the same schema as a direct upgrade.
+
+## Limits
+
+- Only Postgres is per-branch. Redis and object storage are shared.
+- Hyphens are dropped when a branch name becomes a database name, so `feat/foo-bar` and `feat/foobar` share one database.
+- The repo's older `scripts/dev-db-init.sh` and `scripts/dev-db-commit.sh` implement a different model. Do not mix them with this tool.
+
+## Install
+
+```bash
+/plugin install eneo-dev-db@eneoplugin
+```
+
+See the [plugin README](https://github.com/CCimen/eneoplugin/tree/main/plugins/eneo-dev-db) for terminal setup and the full details.
