@@ -17,7 +17,7 @@ Claude Code marketplace for the Eneo workflow.
 - fast-lane work that stays light
 - stronger checks only when the risk justifies them
 
-## The four active plugins
+## The five active plugins
 
 | Plugin | Purpose |
 |---|---|
@@ -25,6 +25,7 @@ Claude Code marketplace for the Eneo workflow.
 | [`eneo-standards`](plugins/eneo-standards/) | Hooks, validators, helper binaries, and status line |
 | [`eneo-findings`](plugins/eneo-findings/) | Findings workflow and learning extraction |
 | [`eneo-review`](plugins/eneo-review/) | On-demand `/eneo-peer-review` plus trigger-gated external review agents |
+| [`eneo-dev-db`](plugins/eneo-dev-db/) | Per-branch dev databases and a migration simulator for the devcontainer Postgres |
 
 ## Install
 
@@ -34,6 +35,7 @@ Claude Code marketplace for the Eneo workflow.
 /plugin install eneo-standards@eneoplugin
 /plugin install eneo-findings@eneoplugin
 /plugin install eneo-review@eneoplugin   # optional
+/plugin install eneo-dev-db@eneoplugin   # optional
 /reload-plugins
 ```
 
@@ -92,6 +94,7 @@ The harness is intentionally split:
 - `eneo-standards` owns runtime enforcement
 - `eneo-findings` owns backlog capture outside the current task
 - `eneo-review` stays quiet until `/eneo-verify` decides a change is risky enough to justify extra review, or until you run `/eneo-peer-review` for an on-demand architecture/code review
+- `eneo-dev-db` is a standalone developer tool: it gives every git branch its own dev database and is not part of the workflow gates
 
 ## Why this does not adopt beads / `br`
 

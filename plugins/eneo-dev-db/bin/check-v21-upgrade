@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# Validate every upgrade path documented in the Eneo v2.1 release notes.
+#
+# Rehearses, against real throwaway databases:
+#   1. the v2.0.1 → v2.1.0-rc.1 migration-skip bug (must reproduce)
+#   2. the repair published in the release notes (UPDATE + upgrade head)
+#   3. the surgical repair (UPDATE + upgrade 20260603_transcription_migrate
+#      + stamp head)
+#   4. direct v2.0.1 → v2.1 (release notes: safe)
+#   5. direct v2.0.0 → v2.1 (release notes: safe)
+#   6. fresh install at v2.1
+# and asserts the repaired schema is identical to the direct-upgrade schema.
+#
+# The v2.1 ref defaults to release/v2.1; override with V21_REF=<ref>.
+# Scratch dbs are eneo_migsim_v21check_*; remove them with 'eneo-mig-sim clean'
+# (which drops ALL eneo_migsim_* databases) or individually with drop.
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SIM="$HERE/eneo-mig-sim"
+V21_REF="${V21_REF:-release/v2.1}"
+RC1_HEAD="3eb6a34b6733"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+PASS=0; FAIL=0
+ok()   { PASS=$((PASS+1)); echo "  PASS: $*"; }
+bad()  { FAIL=$((FAIL+1)); echo "  FAIL: $*"; }
+step() { echo; echo "== $* =="; }
+
+version_of() {
+  "$SIM" sql "$1" "SELECT version_num FROM alembic_version;" | sed -n 3p | tr -d ' '
+}
+
+# The four schema artifacts the rc.1 bug skips.
+probe() {
+  "$SIM" sql "$1" "SELECT
+    EXISTS (SELECT 1 FROM information_schema.columns
+            WHERE table_name='users' AND column_name='external_id')::int
+  + EXISTS (SELECT 1 FROM information_schema.columns
+            WHERE table_name='completion_models' AND column_name='input_cost_per_token')::int
+  + EXISTS (SELECT 1 FROM information_schema.tables
+            WHERE table_name='transcription_model_migration_history')::int
+  + EXISTS (SELECT 1 FROM information_schema.columns
+            WHERE table_name='tenants' AND column_name='scim_token_hash')::int;" \
+    | sed -n 3p | tr -d ' '
+}
+
+mig() { "$SIM" alembic "$@" >"$WORK/last.log" 2>&1; }
+
+normalized_dump() {
+  # \restrict tokens are random per dump; trailing commas move with column
+  # order, which legitimately differs between upgraded and fresh databases.
+  "$SIM" dump "$1" | grep -vE '^--|^$|\\restrict|\\unrestrict' | sed 's/,$//' | sort
+}
+
+step "1. Reproduce the v2.0.1 → v2.1.0-rc.1 skip bug"
+"$SIM" create v21check_broken >/dev/null
+# Head of the target ref's chain (differs between release/v2.1 and develop).
+V21_HEAD="$("$SIM" alembic v21check_broken "$V21_REF" heads 2>/dev/null | awk '$2 ~ /head/ {print $1; exit}')"
+[ -n "$V21_HEAD" ] || { echo "could not determine alembic head of $V21_REF"; exit 1; }
+echo "  target ref $V21_REF, alembic head $V21_HEAD"
+mig v21check_broken v2.0.1 upgrade head || { bad "v2.0.1 baseline failed"; cat "$WORK/last.log"; exit 1; }
+mig v21check_broken v2.1.0-rc.1 upgrade head || { bad "rc.1 upgrade errored (expected silent skip)"; cat "$WORK/last.log"; exit 1; }
+[ "$(version_of v21check_broken)" = "$RC1_HEAD" ] \
+  && ok "rc.1 upgrade completed, version_num=$RC1_HEAD" \
+  || bad "unexpected version_num $(version_of v21check_broken)"
+[ "$(probe v21check_broken)" = "0" ] \
+  && ok "bug reproduced: SCIM / model-cost / transcription artifacts all missing" \
+  || bad "expected skipped artifacts to be missing, probe=$(probe v21check_broken)/4"
+
+step "2. Published repair (UPDATE + upgrade head) — known to fail"
+"$SIM" clone v21check_broken v21check_published >/dev/null
+"$SIM" sql v21check_published "UPDATE alembic_version SET version_num = '202605061100';" >/dev/null
+if mig v21check_published "$V21_REF" upgrade head; then
+  ok "published repair now succeeds (migrations were made idempotent?)"
+  [ "$(probe v21check_published)" = "4" ] \
+    && ok "published repair restored all artifacts" \
+    || bad "published repair succeeded but artifacts incomplete"
+else
+  grep -q "DuplicateColumn\|DuplicateTable\|DuplicateObject" "$WORK/last.log" \
+    && ok "published repair fails as expected (duplicate DDL on re-run: is_system_user / help-assistant tables)" \
+    || { bad "published repair failed for an unexpected reason"; tail -5 "$WORK/last.log"; }
+fi
+
+step "3. Surgical repair (UPDATE + upgrade 20260603_transcription_migrate + stamp head)"
+"$SIM" clone v21check_broken v21check_surgical >/dev/null
+"$SIM" sql v21check_surgical "UPDATE alembic_version SET version_num = '202605061100';" >/dev/null
+mig v21check_surgical "$V21_REF" upgrade 20260603_transcription_migrate \
+  && ok "skipped chain applied cleanly" \
+  || { bad "surgical upgrade errored"; tail -5 "$WORK/last.log"; }
+# Stamp the v2.1 head specifically, not 'head': with the v2.1 release deployed
+# they are the same revision, but against a later ref (develop / v2.2) a bare
+# 'stamp head' would mark post-2.1 migrations applied without running them.
+mig v21check_surgical "$V21_REF" stamp "$RC1_HEAD" \
+  && ok "stamped to v2.1 head $RC1_HEAD" \
+  || bad "stamp failed"
+mig v21check_surgical "$V21_REF" upgrade head \
+  && ok "post-repair upgrade head clean (no-op on v2.1 itself)" \
+  || { bad "post-repair upgrade head errored"; tail -5 "$WORK/last.log"; }
+[ "$(version_of v21check_surgical)" = "$V21_HEAD" ] \
+  && ok "version_num=$V21_HEAD" \
+  || bad "version_num=$(version_of v21check_surgical), expected $V21_HEAD"
+[ "$(probe v21check_surgical)" = "4" ] \
+  && ok "all previously skipped artifacts present" \
+  || bad "artifacts incomplete after surgical repair: $(probe v21check_surgical)/4"
+
+step "4. Direct v2.0.1 → v2.1"
+"$SIM" create v21check_direct >/dev/null
+mig v21check_direct v2.0.1 upgrade head || bad "v2.0.1 baseline failed"
+mig v21check_direct "$V21_REF" upgrade head \
+  && [ "$(probe v21check_direct)" = "4" ] \
+  && ok "direct v2.0.1 → v2.1 clean, all artifacts present" \
+  || { bad "direct v2.0.1 → v2.1 failed"; tail -5 "$WORK/last.log"; }
+
+step "5. Direct v2.0.0 → v2.1"
+"$SIM" create v21check_from200 >/dev/null
+mig v21check_from200 v2.0.0 upgrade head || bad "v2.0.0 baseline failed"
+mig v21check_from200 "$V21_REF" upgrade head \
+  && [ "$(probe v21check_from200)" = "4" ] \
+  && ok "direct v2.0.0 → v2.1 clean, all artifacts present" \
+  || { bad "direct v2.0.0 → v2.1 failed"; tail -5 "$WORK/last.log"; }
+
+step "6. Fresh install at v2.1"
+"$SIM" create v21check_fresh >/dev/null
+mig v21check_fresh "$V21_REF" upgrade head \
+  && ok "fresh install migrated clean" \
+  || { bad "fresh install failed"; tail -5 "$WORK/last.log"; }
+
+step "7. Schema equivalence"
+for db in surgical direct from200 fresh; do
+  normalized_dump "v21check_$db" >"$WORK/$db.sql"
+done
+diff -q "$WORK/surgical.sql" "$WORK/direct.sql" >/dev/null \
+  && ok "repaired schema == direct-upgrade schema" \
+  || { bad "repaired schema differs from direct upgrade:"; diff "$WORK/surgical.sql" "$WORK/direct.sql" | head -20; }
+diff -q "$WORK/direct.sql" "$WORK/from200.sql" >/dev/null \
+  && ok "v2.0.0 and v2.0.1 upgrade paths converge" \
+  || { bad "v2.0.0 path schema differs:"; diff "$WORK/direct.sql" "$WORK/from200.sql" | head -20; }
+if ! diff -q "$WORK/direct.sql" "$WORK/fresh.sql" >/dev/null; then
+  echo "  NOTE: upgraded vs fresh-install schema drift (pre-existing, not caused by the rc.1 bug):"
+  diff "$WORK/direct.sql" "$WORK/fresh.sql" | grep '^[<>]' | sed 's/^/    /'
+fi
+
+echo
+echo "== Result: $PASS passed, $FAIL failed =="
+[ "$FAIL" -eq 0 ]

@@ -1,6 +1,6 @@
 # Plugins Overview
 
-The marketplace now ships four plugins:
+The marketplace now ships five plugins:
 
 | Plugin | Purpose |
 |--------|---------|
@@ -8,6 +8,7 @@ The marketplace now ships four plugins:
 | [eneo-standards](/plugins/eneo-standards) | Hooks, validators, helper binaries, and status line |
 | [eneo-findings](/plugins/eneo-findings) | Findings workflow and learning extraction |
 | [eneo-review](/plugins/eneo-review) | Trigger-gated external review agents |
+| [eneo-dev-db](/plugins/eneo-dev-db) | Per-branch dev databases and a migration simulator |
 
 ## How they fit together
 
@@ -15,5 +16,6 @@ The marketplace now ships four plugins:
 - `eneo-standards` is the runtime safety layer
 - `eneo-findings` handles backlog capture outside the current task
 - `eneo-review` stays quiet until `/eneo-verify` decides a change is risky enough to justify extra review
+- `eneo-dev-db` is an optional developer tool that sits outside the workflow: it keeps the dev database in step with the git branch
 
 This is intentional. The harness is designed to keep the common path lightweight and only pay extra complexity when risk or scope actually justify it.

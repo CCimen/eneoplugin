@@ -1,0 +1,8 @@
+{
+  "name": "eneo-dev-db",
+  "description": "Per-branch development databases for the Eneo devcontainer Postgres: every git branch owns a database named eneo_<branch>, cloned once from the branch it was created from. Ships the eneo-dev-db tool and /dev-db command, plus eneo-mig-sim for rehearsing alembic upgrade paths between releases against throwaway databases.",
+  "author": {
+    "name": "Eneo AI Team"
+  },
+  "license": "MIT"
+}

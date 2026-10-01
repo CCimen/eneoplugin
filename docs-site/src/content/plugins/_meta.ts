@@ -6,6 +6,7 @@ const meta: MetaRecord = {
   'eneo-standards': 'eneo-standards',
   'eneo-findings': 'eneo-findings',
   'eneo-review': 'eneo-review',
+  'eneo-dev-db': 'eneo-dev-db',
 }
 
 export default meta;

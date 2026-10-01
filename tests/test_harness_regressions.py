@@ -124,6 +124,9 @@ class HarnessRegressionTests(unittest.TestCase):
             REPO_ROOT / "plugins" / "eneo-standards" / "bin" / "eneo-commit-preflight",
             REPO_ROOT / "plugins" / "eneo-standards" / "bin" / "eneo-commit-message-check",
             REPO_ROOT / "plugins" / "eneo-review" / "bin" / "eneo-peer-review",
+            REPO_ROOT / "plugins" / "eneo-dev-db" / "bin" / "eneo-dev-db",
+            REPO_ROOT / "plugins" / "eneo-dev-db" / "bin" / "eneo-mig-sim",
+            REPO_ROOT / "plugins" / "eneo-dev-db" / "bin" / "check-v21-upgrade",
         ]
         for path in required:
             self.assertTrue(path.exists(), str(path))

@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+# Migration simulator: run any git ref's alembic against throwaway databases.
+#
+# Exists to rehearse upgrade paths between releases (e.g. "what happens to a
+# v2.0.1 database when v2.1.0-rc.1's migrations run against it?") without
+# touching any branch database or backend/.env. Code for a ref is extracted
+# with `git archive` into .mig-sim/ inside the repo (visible to the
+# devcontainer at /workspace/.mig-sim), gets its own uv environment, and its
+# alembic runs against an eneo_migsim_* scratch database.
+#
+#   eneo-mig-sim create <name>            create empty scratch db eneo_migsim_<name>
+#   eneo-mig-sim alembic <name> <ref> <args...>   run <ref>'s alembic against it
+#   eneo-mig-sim clone <src> <dest>       copy one scratch db to another
+#   eneo-mig-sim sql <name> <SQL>         run SQL against a scratch db
+#   eneo-mig-sim dump <name>              pg_dump --schema-only to stdout
+#   eneo-mig-sim drop <name>             drop a scratch db
+#   eneo-mig-sim clean                    drop all scratch dbs, remove .mig-sim/
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Reuse container discovery, psql plumbing, and repo detection from eneo-dev-db.
+# Sourcing defines helpers without dispatching (guarded by BASH_SOURCE check).
+source "$HERE/eneo-dev-db"
+
+SIM_PREFIX="eneo_migsim_"
+SIM_DIR="${REPO_ROOT}/.mig-sim"
+
+sim_usage() {
+  awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"
+}
+
+sim_db_name() {
+  local name="$1"
+  printf '%s' "$name" | grep -qE '^[a-z0-9_]+$' \
+    || die "scratch name '$name' must be lowercase [a-z0-9_]."
+  printf '%s%s' "$SIM_PREFIX" "$name"
+}
+
+# Keep .mig-sim/ out of git status without touching tracked ignore files.
+ensure_excluded() {
+  local exclude="${REPO_ROOT}/.git/info/exclude"
+  grep -qxF '.mig-sim/' "$exclude" 2>/dev/null || echo '.mig-sim/' >>"$exclude"
+}
+
+sanitize_ref() {
+  printf '%s' "$1" | tr '/.' '__' | tr -cd 'A-Za-z0-9_-'
+}
+
+# Extract backend/ of a ref once; reused across invocations.
+ensure_tree() {
+  local ref="$1" name dir
+  name="$(sanitize_ref "$ref")"
+  dir="${SIM_DIR}/${name}"
+  if [ ! -f "$dir/backend/pyproject.toml" ]; then
+    git -C "$REPO_ROOT" rev-parse --verify --quiet "${ref}^{commit}" >/dev/null \
+      || die "ref '$ref' does not resolve to a commit."
+    echo "Extracting $ref → .mig-sim/$name ..." >&2
+    mkdir -p "$dir"
+    git -C "$REPO_ROOT" archive "$ref" backend | tar -x -C "$dir"
+  fi
+  printf '%s' "$dir"
+}
+
+# Give the extracted tree a .env pointing at the scratch database. Every value
+# except POSTGRES_DB is taken from the real backend/.env, which is only ever
+# read here; the copy lives inside .mig-sim and is rewritten per invocation.
+write_tree_env() {
+  local dir="$1" db="$2"
+  [ -f "$ENV_FILE" ] || die "$ENV_FILE does not exist. Start the devcontainer once to create it."
+  awk -v val="$db" '
+    !done && /^[[:space:]]*POSTGRES_DB=/ { print "POSTGRES_DB=" val; done=1; next }
+    { print }
+    END { if (!done) print "POSTGRES_DB=" val }
+  ' "$ENV_FILE" >"$dir/backend/.env"
+}
+
+sim_cmd_create() {
+  local db; db="$(sim_db_name "${1:-}")"
+  load_db_list
+  if db_exists "$db"; then
+    kick_connections "$db"
+    psql_t1 -c "DROP DATABASE \"$db\";" >/dev/null
+    echo "Dropped existing '$db'."
+  fi
+  psql_t1 -c "CREATE DATABASE \"$db\";" >/dev/null
+  echo "Created empty '$db'."
+}
+
+sim_cmd_drop() {
+  local db; db="$(sim_db_name "${1:-}")"
+  load_db_list
+  db_exists "$db" || { echo "'$db' does not exist."; return 0; }
+  kick_connections "$db"
+  psql_t1 -c "DROP DATABASE \"$db\";" >/dev/null
+  echo "Dropped '$db'."
+}
+
+sim_cmd_clone() {
+  local src dest
+  src="$(sim_db_name "${1:-}")"
+  dest="$(sim_db_name "${2:-}")"
+  load_db_list
+  db_exists "$src" || die "source scratch database '$src' does not exist."
+  if db_exists "$dest"; then
+    kick_connections "$dest"
+    psql_t1 -c "DROP DATABASE \"$dest\";" >/dev/null
+  fi
+  clone_db "$dest" "$src"
+  echo "Cloned '$src' → '$dest'."
+}
+
+sim_cmd_sql() {
+  local db; db="$(sim_db_name "${1:-}")"; shift
+  [ $# -ge 1 ] || die "sql needs a statement."
+  psql_db "$db" -c "$1"
+}
+
+sim_cmd_dump() {
+  local db; db="$(sim_db_name "${1:-}")"
+  docker exec -i "$DB_CONTAINER" pg_dump -U postgres --schema-only --no-owner "$db"
+}
+
+sim_cmd_alembic() {
+  local db ref dir name
+  db="$(sim_db_name "${1:-}")"; shift
+  ref="${1:-}"; shift
+  [ -n "$ref" ] || die "alembic needs a git ref: eneo-mig-sim alembic <name> <ref> <args...>"
+  [ $# -ge 1 ] || die "alembic needs alembic arguments (e.g. 'upgrade head')."
+  load_db_list
+  db_exists "$db" || die "scratch database '$db' does not exist. Run 'eneo-mig-sim create ${db#"$SIM_PREFIX"}' first."
+
+  ensure_excluded
+  dir="$(ensure_tree "$ref")"
+  name="$(basename "$dir")"
+  write_tree_env "$dir" "$db"
+
+  if [ "$IN_APP_CONTAINER" -eq 1 ]; then
+    ( cd "$dir/backend" && PATH="${HOME}/.local/bin:${PATH}" uv run alembic "$@" )
+  else
+    docker exec -u vscode "$APP_CONTAINER" bash -i -c \
+      "cd /workspace/.mig-sim/$name/backend && uv run alembic $*"
+  fi
+}
+
+sim_cmd_clean() {
+  local name
+  load_db_list
+  # psql_t1 runs `docker exec -i`, which would consume a while-read loop's
+  # stdin and end the iteration after one database; iterate a word list.
+  for name in $DB_LIST; do
+    case "$name" in
+      "$SIM_PREFIX"*)
+        kick_connections "$name"
+        psql_t1 -c "DROP DATABASE \"$name\";" >/dev/null
+        echo "Dropped $name"
+        ;;
+    esac
+  done
+  if [ -d "$SIM_DIR" ]; then
+    rm -rf "$SIM_DIR"
+    echo "Removed $SIM_DIR"
+  fi
+}
+
+sim_main() {
+  local subcommand="${1:-}"
+  [ $# -gt 0 ] && shift || true
+
+  case "$subcommand" in
+    ""|-h|--help|help) sim_usage; return 0 ;;
+  esac
+
+  [ -n "$REPO_ROOT" ] || die "not inside a git repository; cd into the eneo checkout first."
+  discover_containers
+
+  case "$subcommand" in
+    create)  sim_cmd_create "$@" ;;
+    clone)   sim_cmd_clone "$@" ;;
+    drop)    sim_cmd_drop "$@" ;;
+    sql)     sim_cmd_sql "$@" ;;
+    dump)    sim_cmd_dump "$@" ;;
+    alembic) sim_cmd_alembic "$@" ;;
+    clean)   sim_cmd_clean ;;
+    *) die "unknown subcommand '$subcommand'. Run 'eneo-mig-sim --help'." ;;
+  esac
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  sim_main "$@"
+fi

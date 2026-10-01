@@ -27,6 +27,12 @@
       "version": "0.2.1",
       "source": "./plugins/eneo-findings",
       "description": "GitHub findings workflow and learning extraction."
+    },
+    {
+      "name": "eneo-dev-db",
+      "version": "0.1.0",
+      "source": "./plugins/eneo-dev-db",
+      "description": "Per-branch development databases for the Eneo devcontainer, plus a migration simulator for rehearsing upgrade paths."
     }
   ]
 }
